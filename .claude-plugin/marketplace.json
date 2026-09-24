@@ -1,0 +1,14 @@
+{
+  "name": "taller",
+  "owner": {
+    "name": "Gabriel Capeáns"
+  },
+  "description": "Marketplace de un solo plugin: este repo es a la vez marketplace y plugin.",
+  "plugins": [
+    {
+      "name": "taller",
+      "source": "./",
+      "description": "El ciclo de trabajo sobre GitHub (triage → issue → PR → merge → triage) más hooks, revisores y MCP para proyectos con infra en Azure, Terraform y Postgres."
+    }
+  ]
+}

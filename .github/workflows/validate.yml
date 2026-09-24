@@ -1,0 +1,40 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # El chequeo de version bump compara contra la base del PR.
+          fetch-depth: 0
+
+      - name: Validación del plugin
+        run: ./tests/validate.sh
+
+      # `version` en plugin.json es el ÚNICO mecanismo de release: si no sube, los repos
+      # consumidores no reciben el cambio al refrescar el marketplace. Solo se exige para
+      # las rutas que viajan a los consumidores (docs y tests no la necesitan).
+      - name: Version bump en cambios con efecto en consumidores
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE"...HEAD)
+          if ! printf '%s\n' "$changed" | grep -Eq '^(hooks/|bin/|agents/|skills/|\.mcp\.json$)'; then
+            echo "Sin cambios con efecto en consumidores: no hace falta subir version."
+            exit 0
+          fi
+          antes=$(git show "$BASE:.claude-plugin/plugin.json" | jq -r .version)
+          ahora=$(jq -r .version .claude-plugin/plugin.json)
+          if [ "$antes" = "$ahora" ]; then
+            echo "::error file=.claude-plugin/plugin.json::Este PR toca hooks/bin/agents/skills/.mcp.json pero deja version en $antes. Súbela: es el único mecanismo de release hacia los repos consumidores."
+            exit 1
+          fi
+          echo "version $antes -> $ahora"

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "terraform": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:0.4.0"]
+    },
+    "azure-mcp": {
+      "command": "npx",
+      "args": ["-y", "@azure/mcp@2.0.3", "server", "start"]
+    },
+    "postgres-prod": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/postgres-mcp-launcher.sh",
+      "args": ["PROD", "${DATABASE_URL_PROD}"]
+    },
+    "postgres-dev": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/postgres-mcp-launcher.sh",
+      "args": ["DEV", "${DATABASE_URL_DEV}"]
+    }
+  }
+}

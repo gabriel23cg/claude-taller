@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Stop hook: al terminar el turno, `terraform fmt -recursive` sobre infra/.
+#
+# Se formatea al final del turno (no en cada Edit) para no romper el match exacto de
+# ediciones incrementales de la herramienta Edit. Evita el CI rojo por `fmt -check`.
+#
+# No-op si el repo no tiene directorio infra/ o no hay terraform en el PATH
+# (guarda de plugin multi-repo).
+#
+# Exit codes: 0 = siempre (el formateo nunca debe bloquear el cierre del turno).
+
+set -euo pipefail
+
+cd "$CLAUDE_PROJECT_DIR"
+
+[[ -d infra ]] || exit 0
+command -v terraform >/dev/null 2>&1 || exit 0
+
+terraform -chdir=infra fmt -recursive >/dev/null 2>&1 || true
+
+exit 0
