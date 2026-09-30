@@ -108,6 +108,44 @@ cross-repo de infra, esa señal es la sintaxis de Terraform —un `data` sin su 
 organización para ver quién declara ese recurso. El procedimiento entero vive en
 `terraform-plan-reviewer`.
 
+## Modelo y esfuerzo de los agentes (v1.1.0)
+
+Cada agente fija su `model` y su `effort` en el frontmatter. Es una opinión del plugin, igual
+en todos los proyectos, así que va escrita aquí y no se deja a la sesión:
+
+| Agente | `model` | `effort` | Por qué |
+|---|---|---|---|
+| `backlog-triage` | `sonnet` | `medium` | Corre en cada vuelta del ciclo, así que la latencia se nota. Sus fallos **avisan**: el usuario confirma la propuesta y `/work-issue` relee el issue entero antes de empezar. Ordenar no es verificar: es el «alcance claro» de `medium` |
+| `test-coverage-reviewer` | hereda | `high` | Su veredicto más valioso, «cobertura engañosa», es el más sutil, y un falso «cubierto» **no avisa**. Verificar es su trabajo: eso es `high` según la doc |
+| `terraform-plan-reviewer` | `opus` | `high` | Última barrera antes de destruir algo en prod. Corre poco, así que fijar Opus cuesta casi nada |
+| `alembic-migration-reviewer` | `opus` | `high` | Mismo criterio que el de plan: el esquema de prod |
+
+El criterio es **frecuencia × irreversibilidad × si el fallo avisa**, no el precio por token:
+el ahorro de bajar a Sonnet es de céntimos por ejecución (la lectura de caché cuesta lo
+mismo en los dos modelos). Por eso **no se baja un agente a Sonnet o Haiku «para ahorrar»
+sin medirlo antes** (ver abajo). Haiku, además, no admite `effort`.
+
+Tres mecánicas que conviene no olvidar (verificadas contra la doc, 2026-09-30):
+
+- **Por qué hay que fijar `effort`**: en Claude Code, Opus 5.5 y Sonnet 5.5 arrancan en
+  `medium`, y un agente sin `effort` corre al de la sesión. Sin fijarlo, un revisor corre en
+  `low` el día que bajas la sesión para ir rápido.
+- **Precedencia**: el `model` del frontmatter gana a `CLAUDE_CODE_SUBAGENT_MODEL`, salvo con
+  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. En cambio **`CLAUDE_CODE_EFFORT_LEVEL` gana al
+  `effort` del frontmatter** («overriding the session level but not the environment
+  variable»): con esa variable puesta, los niveles de esta tabla no mandan.
+- **`opus` es suelo y techo**: una sesión en Sonnet no baja los revisores de prod, pero una
+  sesión en Fable los deja en Opus 5.5.
+
+**Cómo medirlo** antes de cambiar una fila: `claude plugin eval` con casos reales (un plan
+con un `replace` escondido entre 200 `update`, un diff con trampas de cobertura sembradas).
+Para comparar modelos en un agente que **hereda**, basta con `--model`, que le llega por
+herencia. En uno que fija `model`, hay que quitar el pin mientras se mide.
+
+`tests/validate.sh` rechaza valores inventados de `model`/`effort` (y Haiku con `effort`),
+porque `claude plugin validate` los da por buenos: el error solo aparecería al invocar el
+agente.
+
 ## Reglas al cambiar algo
 
 - **Sube `version` en `plugin.json` en cada cambio con efecto en consumidores.** Es el único

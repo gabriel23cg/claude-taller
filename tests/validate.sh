@@ -79,6 +79,25 @@ for f in skills/*/SKILL.md agents/*.md; do
   fi
 done
 
+head_ "model y effort de los agentes"
+# `claude plugin validate` da por bueno `model: sonet` o `effort: medio` (probado): el
+# error solo aparecería al invocar el agente, en mitad de un /check-work. Aquí se caza al
+# validar. Valores según la doc de subagentes: alias, `inherit` o un ID `claude-*`; y los
+# cinco niveles de esfuerzo. Haiku no admite `effort`, así que esa pareja también es error.
+fm_valor() { awk -v k="$2" 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} $0 ~ "^"k":" {sub("^"k":[[:space:]]*",""); print}' "$1"; }
+modelo_valido()  { case "$1" in ""|sonnet|opus|haiku|fable|inherit|claude-*) return 0;; *) return 1;; esac; }
+esfuerzo_valido() { case "$1" in ""|low|medium|high|xhigh|max) return 0;; *) return 1;; esac; }
+# Control positivo: si las funciones aceptaran cualquier cosa, el bucle pasaría en falso.
+if modelo_valido sonet || esfuerzo_valido medio; then ko "el chequeo de model/effort acepta valores inventados: está roto"
+else ok "el chequeo rechaza valores inventados"; fi
+for f in agents/*.md; do
+  m=$(fm_valor "$f" model); e=$(fm_valor "$f" effort)
+  if ! modelo_valido "$m"; then ko "$f: model '$m' no es un alias, inherit ni un ID claude-*"
+  elif ! esfuerzo_valido "$e"; then ko "$f: effort '$e' no es low|medium|high|xhigh|max"
+  elif [[ "$m" == haiku* || "$m" == claude-haiku* ]] && [[ -n "$e" ]]; then ko "$f: Haiku no admite effort"
+  else ok "$f (model=${m:-hereda} effort=${e:-sesión})"; fi
+done
+
 head_ "Smoke: block-terraform-apply"
 BTA=hooks/block-terraform-apply.sh
 hook_exit 2 "apply de infra bloqueado"    "$BTA" '{"tool_input":{"command":"terraform -chdir=infra apply tfplan"}}'

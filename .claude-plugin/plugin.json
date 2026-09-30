@@ -1,7 +1,7 @@
 {
   "name": "taller",
   "description": "Ciclo de trabajo completo sobre GitHub para Claude Code: triage del backlog, arranque de un issue con su contexto, comprobación de que el trabajo está listo, apertura del PR, remate hasta mergeado y vuelta al triage (skills triage, work-issue, check-work, open-pr, land-pr, gh-create-issue). Más hooks de guardarraíl (ruff, formato Terraform, bloqueo de apply/destroy fuera de CI, campos de issue sin poner, PR que dice cerrar un issue y no enlaza, cobertura del cambio en cada turno, deriva de los invariantes de plan), agentes de revisión (triage de backlog, plan de Terraform, migraciones Alembic — los dos últimos dueños de los invariantes del repo) y servidores MCP comunes (terraform, azure-mcp, postgres prod/dev). Para proyectos con infra en Azure, Terraform y Postgres. Los datos de cada repo (org, IDs, labels, rama base) se descubren en runtime; las políticas (apply solo por CI, prod de solo lectura, COMMENT en español) son del plugin y van escritas.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Gabriel Capeáns"
   },

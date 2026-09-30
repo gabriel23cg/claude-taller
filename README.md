@@ -134,6 +134,11 @@ ya no define los servers comunes, quedan huérfanos y confunden.
 
 ### Agentes (`agents/`)
 
+Cada agente fija su `model` y su `effort` en el frontmatter (el porqué, en `CLAUDE.md` →
+«Modelo y esfuerzo de los agentes»). Si defines `CLAUDE_CODE_EFFORT_LEVEL`, esa variable
+gana al `effort` de los agentes; `CLAUDE_CODE_SUBAGENT_MODEL` no gana al `model` salvo con
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`.
+
 - **backlog-triage** — lee todos los issues abiertos de uno o varios repos y devuelve
   **una** recomendación argumentada de por dónde seguir, con los bloqueos, los duplicados y
   lo que ya tiene PR abierto apartados. Es un agente y no una skill justamente por eso: lee
