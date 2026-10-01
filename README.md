@@ -252,9 +252,7 @@ En el `.claude/settings.json` (versionado) del repo consumidor:
 }
 ```
 
-Al abrir el repo, Claude Code detecta el marketplace, instala el plugin y lo activa. Mientras
-`gabriel23cg/claude-taller` sea **privado**, cada máquina que lo cargue necesita acceso de
-lectura a él con sus credenciales de git.
+Al abrir el repo, Claude Code detecta el marketplace, instala el plugin y lo activa.
 Los hooks del plugin **se suman** a los hooks propios del repo (si ambos corren sobre el
 mismo evento, un exit 2 de cualquiera bloquea).
 
