@@ -328,9 +328,16 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
      repo declarándolo, el log de arranque dice `plugin-cache-miss` y `/plugin` → Errors
      muestra `Plugin "taller" not cached at …/marketplaces/taller`. `claude plugin details`
      y `/reload-plugins` sí lo encuentran, y por eso parece que basta con recargar: el error
-     vuelve en cada sesión nueva. La doc dice que un plugin de ruta relativa «needs no
-     install record», pero eso vale para marketplaces añadidos desde un directorio local;
-     este se añade desde GitHub.
+     vuelve en cada sesión nueva. **Es un fallo de Claude Code, no de taller**: la doc
+     («Require plugins per repository») dice que un plugin de ruta relativa *«loads from the
+     marketplace copy once the repository's `extraKnownMarketplaces` entries apply»*, sin
+     registro. Con un plugin oficial (`commit-commands@claude-plugins-official`, en
+     subcarpeta) pasa lo mismo, y el log da la pista: *«Skipped auto-recording … — enabled
+     only by repo-authored settings»*. Claude Code no crea el registro porque solo lo activa
+     un fichero del repo (razonable: un clon no debe instalarte código), pero el arranque
+     luego no carga sin él. Si lo arreglan, la instalación por máquina sobraría y bastaría
+     con clonar y aceptar el diálogo de confianza: compruébalo tras cada versión con el
+     mismo `claude -p --debug` en un HOME limpio.
   2. **Un registro de scope `project` vale solo para su directorio exacto.** En otro
      directorio con el mismo repo (un worktree) cargan 0 skills y 0 agentes. Además,
      `install --scope project` reescribe el `.claude/settings.json` versionado (formato y

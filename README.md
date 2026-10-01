@@ -277,7 +277,10 @@ Córrelo desde `~`, no desde un repo. Después, en una sesión: `/plugin` → **
   plugins que tienen registro en `~/.claude/plugins/installed_plugins.json`. Sin él, la
   pestaña Errors de `/plugin` muestra `Plugin "taller" not cached at
   …/plugins/marketplaces/taller` en **cada arranque**, aunque `/reload-plugins` lo arregle
-  para esa sesión. Ese reload engaña: parece que basta y no basta.
+  para esa sesión. Ese reload engaña: parece que basta y no basta. Según la doc, con un
+  plugin de ruta relativa como este bastaría con clonar el repo y aceptar el diálogo de
+  confianza. No funciona, y pasa igual con plugins oficiales: es un fallo de Claude Code
+  (detalle en `CLAUDE.md`). La instalación por máquina es el rodeo hasta que lo arreglen.
 - **`--scope project` no sirve aquí.** Crea un registro atado a la ruta exacta del
   directorio, así que un worktree del mismo repo arranca sin plugin. Y de paso reescribe el
   `.claude/settings.json` versionado (cambia formato y orden de claves).
