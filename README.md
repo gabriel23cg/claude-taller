@@ -397,8 +397,8 @@ caché se reconstruye en la siguiente sesión.
 **Qué sirve en la nube.** Las skills, los agentes y los hooks, sí. Los MCP de Postgres y
 Azure no conectarán sin VPN ni credenciales, así que no esperes nada de ellos ahí.
 
-Comprobado: con esa variable, el CLI carga taller entero (7 skills, 4 agentes y los hooks).
-**Falta comprobarlo** en una sesión de claude.ai/code arrancada con el entorno.
+Comprobado el 2026-10-01: con el entorno así configurado, una sesión de claude.ai/code
+arranca con taller entero y `/taller:triage` ejecuta la skill del plugin.
 
 #### Repartirlo por una organización de claude.ai (Cowork y terminal, no la web)
 
