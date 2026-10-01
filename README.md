@@ -306,7 +306,7 @@ estar vacía.
 En **sesiones en la nube** (claude.ai/code) no carga por ninguna de las dos vías: la doc
 dice que no cargan ni los plugins instalados en tu máquina ni los que activa el
 `.claude/settings.json` del repo. Para tenerlo ahí, ver
-[3. En la nube](#3-en-la-nube-repartirlo-por-una-organización-de-claudeai).
+[3. En la nube](#3-en-la-nube-un-entorno-que-cargue-el-plugin).
 
 Los hooks del plugin **se suman** a los hooks propios del repo (si ambos corren sobre el
 mismo evento, un exit 2 de cualquiera bloquea).
@@ -328,75 +328,58 @@ Lo mismo con Alembic: si el repo tiene migraciones, no escribas
 revisión y lo crea derivándolo del esquema del repo. No hay hook de deriva equivalente a
 propósito: crear un fichero en `versions/` ya es el momento natural de invocar al agente.
 
-### 3. En la nube: repartirlo por una organización de claude.ai
+### 3. En la nube: un entorno que cargue el plugin
 
-Opcional, y solo hace falta si quieres el plugin en las sesiones en la nube. Allí no se
-instala nada de lo que declara el repo, pero sí lo que una organización de claude.ai
-reparte a sus miembros: les llega como `taller@synced`. Es la misma vía por la que llegan
-los plugins que activas en tu cuenta de claude.ai, y también alcanza a Cowork y a las
-sesiones de terminal con la cuenta de claude.ai iniciada.
+Opcional, y solo hace falta si quieres el plugin en las sesiones en la nube (claude.ai/code).
+Ahí **no se cargan plugins por ninguna vía de instalación**. No valen los que declara el
+repo, ni los de tu máquina, ni los que reparte una organización de claude.ai. Al escribir
+`/plugins` en una de esas sesiones sale «Los plugins no están disponibles en este entorno».
+Lo que sí llega de claude.ai son **skills** sueltas, sin agentes, hooks ni MCP, y el ciclo
+de taller necesita sus agentes.
 
-**Hace falta:**
+La salida es la variable `CLAUDE_CODE_PLUGIN_DIRS`. Claude Code carga para toda la sesión
+cualquier carpeta de plugin que figure en ella, con todos sus componentes; aparece como
+`taller@inline`. Se configura en el **entorno** de la nube, así que solo afecta a las
+sesiones que abras con ese entorno.
 
-- Ser **Owner** de una organización de claude.ai con plan Team o Enterprise.
-- Poder crear un repo privado en GitHub. La app de GitHub de Claude tiene que tener acceso
-  a ese repo, porque la organización lo lee a través de ella; los miembros no necesitan
-  acceso.
+**Pasos.** En claude.ai/code, abre los ajustes del entorno que uses para estos repos (o crea
+uno):
 
-**Por qué un repo puente y no este.** La sincronización de la organización exige que el
-repo del marketplace sea **privado o interno**, y este es público. Acepta, en cambio, que
-los plugins que ese marketplace lista vengan de un repo público de GitHub. Así que basta
-con un repo privado mínimo que solo tenga el catálogo y apunte aquí. claude.ai te sugerirá
-hacer un fork privado, pero GitHub no permite forks privados de un repo público. Y una
-copia privada te deja dos repos con el mismo código que mantener a mano.
-
-**Pasos:**
-
-1. Crea un repo **privado y vacío**, por ejemplo `<tu-org>/claude-plugins`.
-2. Añade un único fichero, `.claude-plugin/marketplace.json`:
-
-   ```json
-   {
-     "name": "<tu-org>-plugins",
-     "owner": { "name": "<tu organización>" },
-     "description": "Plugins de Claude Code que reparte la organización. Solo es el catálogo: el código de cada plugin vive en su propio repo.",
-     "plugins": [
-       {
-         "name": "taller",
-         "source": { "source": "github", "repo": "gabriel23cg/claude-taller" },
-         "description": "El ciclo de trabajo sobre GitHub más hooks, revisores y MCP para proyectos con infra en Azure, Terraform y Postgres."
-       }
-     ]
-   }
+1. **Setup script** (se ejecuta antes de arrancar Claude Code):
+   ```bash
+   #!/bin/bash
+   git clone --depth 1 https://github.com/gabriel23cg/claude-taller /opt/claude-taller || true
    ```
+2. **Variable de entorno**: `CLAUDE_CODE_PLUGIN_DIRS=/opt/claude-taller`.
+3. Para comprobarlo, abre una sesión **nueva** con ese entorno y escribe `/taller:triage`.
+   Tiene que ejecutarse la skill, no un sucedáneo.
 
-   Compruébalo con `claude plugin validate <ruta-al-repo>`.
-3. En claude.ai: **Organization settings → Plugins y habilidades → Agregar → Sincronizar
-   desde GitHub**. Elige el repo, deja *Sync automatically* activado y pon *Default
-   access* en **Available to install**: cada miembro decide si lo quiere. Con *Installed by
-   default* le llega a todos, que pueden apagarlo; con *Required*, nadie puede.
-4. Cada miembro que lo quiera lo instala en **Customize → Plugins** (sale en *Discover*).
-5. Para comprobarlo, abre una sesión **nueva** en la nube y mira `/plugin`: tiene que
-   aparecer `taller@synced`.
-
-**Ojo con las versiones nuevas.** *Sync automatically* solo salta con un push al repo
-**puente**, no a este. Después de publicar una versión de taller, pulsa **Re-sync** en la
-pestaña *Mercados*; si no, la nube se queda en la versión anterior.
-
-**Convive con la instalación por máquina.** Cuando hay dos plugins con el mismo nombre,
-la copia sincronizada es la de menor prioridad. En un repo consumidor carga la instalación
-de la máquina, y la sincronizada se queda sin cargar. Fuera de esos repos cargaría la
-sincronizada, y con ella sus MCP. Si no la quieres ahí, `claude plugin disable
-taller@synced` la apaga solo en esa máquina.
+**Ojo con las versiones.** El entorno guarda en caché lo que deja el setup script durante
+unos 7 días. Una versión nueva de taller puede tardar eso en llegar, salvo que cambies el
+script, que fuerza a reconstruir la caché.
 
 **Qué sirve en la nube.** Las skills, los agentes y los hooks, sí. Los MCP de Postgres y
 Azure no conectarán sin VPN ni credenciales, así que no esperes nada de ellos ahí.
 
-**Por qué no hay `bin/` en este repo**: claude.ai rechaza un plugin con un `bin/` en la
-raíz, y `validate.sh` lo vigila. Detalle en `CLAUDE.md`.
+Comprobado: con esa variable, el CLI carga taller entero (7 skills, 4 agentes y los hooks).
+**Falta comprobarlo** en una sesión de claude.ai/code arrancada con el entorno.
 
-Comprobado: Claude Code resuelve ese catálogo y descarga taller 1.2.0 completo desde este
-repo. **Falta comprobar** que claude.ai lo acepte y que llegue a una sesión en la nube.
+#### Repartirlo por una organización de claude.ai (Cowork y terminal, no la web)
+
+Una organización de claude.ai puede repartir taller a sus miembros, y les llega como
+`taller@synced` en Cowork y en las sesiones de terminal con la cuenta de claude.ai
+iniciada. **En las sesiones web no carga.** La sincronización exige que el repo del
+marketplace sea **privado**, y este es público, así que hace falta un repo privado puente.
+Ese repo solo lleva `.claude-plugin/marketplace.json`, que lista `taller` con fuente
+`{"source": "github", "repo": "gabriel23cg/claude-taller"}`; los plugins de repos públicos
+sí se aceptan. Se añade en **Organization settings → Plugins y habilidades → Agregar →
+Sincronizar desde GitHub**.
+
+Después de cada versión de taller hay que pulsar **Re-sync**, porque *Sync automatically*
+solo salta con pushes al repo puente. En una máquina que ya tiene la instalación del punto 2,
+la copia sincronizada es la de menor prioridad: en los repos consumidores carga la de la
+máquina, y fuera de ellos cargaría la sincronizada. Si no la quieres ahí,
+`claude plugin disable taller@synced`.
 
 ## Versionado y actualización
 

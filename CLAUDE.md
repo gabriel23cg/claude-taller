@@ -366,14 +366,16 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   una organización (*«Plugin contains a top-level bin/ directory»*), tanto por
   sincronización de marketplace como subiéndolo a mano. Claude Code no se queja, así que el
   fallo solo aparecería al distribuirlo por claude.ai; `validate.sh` lo para antes. Esa vía
-  (Organization settings → Plugins y habilidades) es **la única que lleva el plugin a las
-  sesiones en la nube**: allí no se instalan los plugins que declara el repo. Pide además
-  que el repo del marketplace sea privado, y este es público. La salida es un repo privado
-  puente con solo un `marketplace.json` que liste `taller` con fuente
-  `{"source": "github", "repo": "gabriel23cg/claude-taller"}`: la sincronización de la
-  organización acepta fuentes de plugin públicas. Ese repo solo se resincroniza con un push
-  propio o con *Re-sync*, así que una versión nueva de taller no llega a la nube hasta que
-  alguien pulse *Re-sync*. Los pasos, generalizados, están en el README («3. En la nube»).
+  (Organization settings → Plugins y habilidades) lleva el plugin a Cowork y a las sesiones
+  de terminal con cuenta de claude.ai, **pero no a las sesiones web** (claude.ai/code).
+  Verificado el 2026-10-01: allí `/plugins` dice «Los plugins no están disponibles en este
+  entorno», y lo que llega de claude.ai son skills sueltas (`CLAUDE_CODE_SYNC_SKILLS=1`,
+  en `~/.claude/skills/synced/…`), sin agentes, hooks ni MCP. Para la web, la vía es un
+  entorno con setup script que clone el repo y `CLAUDE_CODE_PLUGIN_DIRS` apuntando a él:
+  el plugin carga entero como `taller@inline` (README, «3. En la nube»). La sincronización
+  de organización exige además que el repo del marketplace sea privado, y este es
+  público. Por eso hace falta un repo privado puente, con solo un `marketplace.json` que
+  liste `taller` con fuente github: los plugins de repos públicos sí se aceptan.
 - **`context7` salió del `.mcp.json` en v0.3.0**: duplicaba el plugin oficial
   `context7@claude-plugins-official` (activo a nivel de usuario) y corrían dos servers por
   sesión. No lo re-añadas; lo mismo aplica antes de añadir cualquier MCP que ya exista como
