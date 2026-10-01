@@ -234,12 +234,28 @@ hace el trabajo de otra.
 
 ## Instalación
 
-Son dos piezas, y hacen falta las dos: el **repo** activa el plugin y cada **máquina** lo
-instala. Ninguna hace el trabajo de la otra.
+Son tres piezas, cada una en su sitio y cada una una sola vez:
 
-### 1. En el repo consumidor (una vez, versionado)
+| Dónde | Cuándo | Qué hace |
+|---|---|---|
+| [Cada repo](#1-en-cada-repo-una-vez-por-repo) | Una vez por repo | Lo **activa** en ese repo (versionado) |
+| [Cada máquina](#2-en-cada-máquina-una-vez-por-máquina-no-por-proyecto) | Una vez por máquina, no por proyecto | Lo **instala** |
+| [Cada entorno de la nube](#3-en-cada-entorno-de-la-nube-una-vez-por-entorno) | Una vez por entorno | Lo **carga** en las sesiones web |
 
-En su `.claude/settings.json`:
+Para tus máquinas, una pieza no hace el trabajo de la otra: el repo activa pero no
+instala, y la instalación sola no carga en ningún repo que no lo active.
+
+### 1. En cada repo (una vez por repo)
+
+Desde dentro del repo:
+
+```bash
+claude plugin enable taller@taller --scope project
+```
+
+Escribe `"enabledPlugins": {"taller@taller": true}` en su `.claude/settings.json`, y con
+eso, en una máquina que ya tiene la instalación del punto 2, carga en ese repo. Añade
+también, a mano, de dónde sale, para que el `settings.json` quede así:
 
 ```json
 {
@@ -257,9 +273,13 @@ En su `.claude/settings.json`:
 }
 ```
 
-Esto dice de dónde sale el plugin y lo **activa** en ese repo. No lo descarga.
+`enabledPlugins` lo **activa** en el repo; `extraKnownMarketplaces` dice **de dónde sale**.
+Este último no hace falta en tu máquina, porque el punto 2 ya registra el marketplace, pero
+le sirve a cualquier otra máquina que abra el repo. El día que Claude Code arregle el
+fallo de abajo, con este bloque bastará con clonar el repo y aceptar el diálogo de
+confianza.
 
-### 2. En cada máquina (una vez)
+### 2. En cada máquina (una vez por máquina, no por proyecto)
 
 ```bash
 claude plugin marketplace add gabriel23cg/claude-taller   # clona el catálogo
@@ -270,6 +290,10 @@ claude plugin disable taller@taller --scope user           # apagado en tu perfi
 Córrelo desde `~`, no desde un repo. Después, en una sesión: `/plugin` → **Marketplaces** →
 `taller` → *Enable auto-update* (en marketplaces de terceros nace apagado; ver
 [Versionado y actualización](#versionado-y-actualización)).
+
+**Si se te olvida en una máquina nueva**, lo notarás porque `/plugin` → **Errors** dice
+`Plugin "taller" not cached`, o porque `/taller:triage` no existe. Corre los tres comandos
+y abre una sesión nueva.
 
 **Por qué así** (comprobado el 2026-10-01 con Claude Code 2.1.287):
 
@@ -306,7 +330,7 @@ estar vacía.
 En **sesiones en la nube** (claude.ai/code) no carga por ninguna de las dos vías: la doc
 dice que no cargan ni los plugins instalados en tu máquina ni los que activa el
 `.claude/settings.json` del repo. Para tenerlo ahí, ver
-[3. En la nube](#3-en-la-nube-un-entorno-que-cargue-el-plugin).
+[3. En cada entorno de la nube](#3-en-cada-entorno-de-la-nube-una-vez-por-entorno).
 
 Los hooks del plugin **se suman** a los hooks propios del repo (si ambos corren sobre el
 mismo evento, un exit 2 de cualquiera bloquea).
@@ -328,35 +352,47 @@ Lo mismo con Alembic: si el repo tiene migraciones, no escribas
 revisión y lo crea derivándolo del esquema del repo. No hay hook de deriva equivalente a
 propósito: crear un fichero en `versions/` ya es el momento natural de invocar al agente.
 
-### 3. En la nube: un entorno que cargue el plugin
+### 3. En cada entorno de la nube (una vez por entorno)
 
-Opcional, y solo hace falta si quieres el plugin en las sesiones en la nube (claude.ai/code).
-Ahí **no se cargan plugins por ninguna vía de instalación**. No valen los que declara el
-repo, ni los de tu máquina, ni los que reparte una organización de claude.ai. Al escribir
-`/plugins` en una de esas sesiones sale «Los plugins no están disponibles en este entorno».
-Lo que sí llega de claude.ai son **skills** sueltas, sin agentes, hooks ni MCP, y el ciclo
-de taller necesita sus agentes.
+Solo hace falta si quieres el plugin en las sesiones en la nube (claude.ai/code). Ahí **no
+se cargan plugins por ninguna vía de instalación**: ni los que declara el repo, ni los de
+tu máquina, ni los que reparte una organización de claude.ai. Si escribes `/plugins` en una
+de esas sesiones, sale «Los plugins no están disponibles en este entorno». De claude.ai solo
+llegan **skills** sueltas, sin agentes, hooks ni MCP, y el ciclo de taller necesita sus
+agentes.
 
-La salida es la variable `CLAUDE_CODE_PLUGIN_DIRS`. Claude Code carga para toda la sesión
-cualquier carpeta de plugin que figure en ella, con todos sus componentes; aparece como
-`taller@inline`. Se configura en el **entorno** de la nube, así que solo afecta a las
-sesiones que abras con ese entorno.
+La salida es la variable `CLAUDE_CODE_PLUGIN_DIRS`: Claude Code carga para toda la sesión
+cualquier carpeta de plugin que figure en ella, con todos sus componentes, y aparece como
+`taller@inline`. Se configura en el **entorno**, no en el repo. Por eso carga en todas las
+sesiones que abras con ese entorno, sea del repo que sea, y no en las que uses con otro.
 
-**Pasos.** En claude.ai/code, abre los ajustes del entorno que uses para estos repos (o crea
-uno):
+**Pasos**, en cada entorno que quieras con taller. En claude.ai/code, abre los ajustes del
+entorno (el icono de ajustes junto a su nombre, o *Entornos en la nube*):
 
-1. **Setup script** (se ejecuta antes de arrancar Claude Code):
+1. **Setup script.** Se ejecuta antes de arrancar Claude Code. Si ya tienes uno, añade la
+   línea al final:
    ```bash
    #!/bin/bash
    git clone --depth 1 https://github.com/gabriel23cg/claude-taller /opt/claude-taller || true
    ```
-2. **Variable de entorno**: `CLAUDE_CODE_PLUGIN_DIRS=/opt/claude-taller`.
-3. Para comprobarlo, abre una sesión **nueva** con ese entorno y escribe `/taller:triage`.
-   Tiene que ejecutarse la skill, no un sucedáneo.
+   El `|| true` es a propósito: si el clon falla, la sesión arranca igual, solo que sin
+   taller. Un setup script que sale con error impide arrancar la sesión.
+2. **Variables de entorno.** Formato `.env`, una por línea:
+   ```text
+   CLAUDE_CODE_PLUGIN_DIRS=/opt/claude-taller
+   ```
+3. **Red.** Con el nivel por defecto, *Trusted*, GitHub está permitido. Con *None* el clon
+   falla.
+4. **Comprobarlo.** Abre una sesión **nueva** con ese entorno y escribe `/taller:triage`.
+   Tiene que ejecutarse la skill del plugin, no que Claude lea los ficheros y la imite. Si
+   la imita, el plugin no cargó. Pídele que corra `ls /opt/claude-taller` y `echo
+   $CLAUDE_CODE_PLUGIN_DIRS`: lo primero dice si el clon llegó y lo segundo si la variable
+   está puesta.
 
 **Ojo con las versiones.** El entorno guarda en caché lo que deja el setup script durante
-unos 7 días. Una versión nueva de taller puede tardar eso en llegar, salvo que cambies el
-script, que fuerza a reconstruir la caché.
+unos 7 días, así que una versión nueva de taller puede tardar eso en llegar. Para tenerla
+ya, cambia cualquier cosa del script, por ejemplo un comentario `# taller 1.2.0`, y la
+caché se reconstruye en la siguiente sesión.
 
 **Qué sirve en la nube.** Las skills, los agentes y los hooks, sí. Los MCP de Postgres y
 Azure no conectarán sin VPN ni credenciales, así que no esperes nada de ellos ahí.

@@ -372,7 +372,8 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   entorno», y lo que llega de claude.ai son skills sueltas (`CLAUDE_CODE_SYNC_SKILLS=1`,
   en `~/.claude/skills/synced/…`), sin agentes, hooks ni MCP. Para la web, la vía es un
   entorno con setup script que clone el repo y `CLAUDE_CODE_PLUGIN_DIRS` apuntando a él:
-  el plugin carga entero como `taller@inline` (README, «3. En la nube»). La sincronización
+  el plugin carga entero como `taller@inline` (README, «3. En cada entorno de la nube»).
+  La sincronización
   de organización exige además que el repo del marketplace sea privado, y este es
   público. Por eso hace falta un repo privado puente, con solo un `marketplace.json` que
   liste `taller` con fuente github: los plugins de repos públicos sí se aceptan.
