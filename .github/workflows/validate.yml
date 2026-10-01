@@ -27,14 +27,14 @@ jobs:
         run: |
           set -euo pipefail
           changed=$(git diff --name-only "$BASE"...HEAD)
-          if ! printf '%s\n' "$changed" | grep -Eq '^(hooks/|bin/|agents/|skills/|\.mcp\.json$)'; then
+          if ! printf '%s\n' "$changed" | grep -Eq '^(hooks/|scripts/|agents/|skills/|\.mcp\.json$)'; then
             echo "Sin cambios con efecto en consumidores: no hace falta subir version."
             exit 0
           fi
           antes=$(git show "$BASE:.claude-plugin/plugin.json" | jq -r .version)
           ahora=$(jq -r .version .claude-plugin/plugin.json)
           if [ "$antes" = "$ahora" ]; then
-            echo "::error file=.claude-plugin/plugin.json::Este PR toca hooks/bin/agents/skills/.mcp.json pero deja version en $antes. Súbela: es el único mecanismo de release hacia los repos consumidores."
+            echo "::error file=.claude-plugin/plugin.json::Este PR toca hooks/scripts/agents/skills/.mcp.json pero deja version en $antes. Súbela: es el único mecanismo de release hacia los repos consumidores."
             exit 1
           fi
           echo "version $antes -> $ahora"

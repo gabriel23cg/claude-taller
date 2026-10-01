@@ -39,14 +39,21 @@ for f in .mcp.json .claude-plugin/plugin.json .claude-plugin/marketplace.json ho
 done
 
 head_ "Sintaxis bash"
-for f in hooks/*.sh bin/*.sh tests/*.sh; do
+for f in hooks/*.sh scripts/*.sh tests/*.sh; do
   if bash -n "$f" 2>/dev/null; then ok "$f"; else ko "$f: error de sintaxis"; fi
 done
 
 head_ "Scripts ejecutables"
-for f in hooks/*.sh bin/*.sh; do
+for f in hooks/*.sh scripts/*.sh; do
   if [[ -x "$f" ]]; then ok "$f +x"; else ko "$f sin bit de ejecución (fallaría al invocarlo el plugin)"; fi
 done
+
+head_ "Sin bin/ en la raíz"
+# claude.ai rechaza un plugin con un bin/ de primer nivel, tanto al sincronizarlo como
+# marketplace de la organización como al subirlo a mano («Plugin contains a top-level bin/
+# directory»). Claude Code lo aceptaría sin quejarse, así que el fallo solo saldría al
+# repartirlo por claude.ai: esta guarda lo adelanta. Los ejecutables van en scripts/.
+if [[ -e bin ]]; then ko "existe bin/ en la raíz: claude.ai rechazaría el plugin (muévelo a scripts/)"; else ok "no hay bin/ en la raíz"; fi
 
 head_ "Wiring de hooks.json y .mcp.json"
 # Toda ruta del plugin debe ir por ${CLAUDE_PLUGIN_ROOT}: el plugin se COPIA a la caché
@@ -344,7 +351,7 @@ salida=$(printf '{}' | env "CLAUDE_PROJECT_DIR=$tmp" "$COV" 2>/dev/null)
 if [[ -z "$salida" ]]; then ok "no-op en repo sin git ni informe"; else ko "no-op: dijo algo"; fi
 
 head_ "Smoke: postgres-mcp-launcher"
-LAUNCHER=bin/postgres-mcp-launcher.sh
+LAUNCHER=scripts/postgres-mcp-launcher.sh
 expect_exit 1 "sin URL: falla con mensaje accionable" "$LAUNCHER" PROD
 expect_exit 1 "literal \${VAR} sin expandir y sin env" env -u DATABASE_URL_PROD "$LAUNCHER" PROD '${DATABASE_URL_PROD}'
 # Stub de uvx para no arrancar postgres-mcp de verdad en la ruta feliz.

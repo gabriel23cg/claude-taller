@@ -91,7 +91,7 @@ interactivas es **Claude Code quien lo detecta** antes de lanzar nada — el pan
 no arranca; es benigno, se ignora. El panel dice *qué* falta; *dónde* definirla es el
 párrafo de arriba.
 
-Los dos servers arrancan vía `bin/postgres-mcp-launcher.sh`. Su guarda ya no es la
+Los dos servers arrancan vía `scripts/postgres-mcp-launcher.sh`. Su guarda ya no es la
 primera línea en interactivo (la validación nativa la precede), pero sigue teniendo
 tres funciones: (1) en **headless** (`claude -p`) no hay validación nativa y el literal
 `${...}` pasaría crudo a postgres-mcp — el launcher lo corta con mensaje accionable;

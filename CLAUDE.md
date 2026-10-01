@@ -50,7 +50,7 @@ se escribe.
 .claude-plugin/marketplace.json  # este repo como marketplace; el plugin es source "./"
 hooks/hooks.json                 # wiring de los 8 hooks (PreToolUse/PostToolUse/Stop)
 hooks/*.sh                       # los hooks (bash 3.2-compatible: sin mapfile)
-bin/postgres-mcp-launcher.sh     # guarda de los MCP de Postgres (valida la URL antes de arrancar)
+scripts/postgres-mcp-launcher.sh # guarda de los MCP de Postgres (valida la URL antes de arrancar)
 agents/*.md                      # agentes: triage de backlog, cobertura de tests, plan de
                                  #   Terraform, migraciones Alembic
 skills/*/SKILL.md                # el ciclo: triage, work-issue, check-work, open-pr, land-pr,
@@ -164,7 +164,7 @@ agente.
 - Los hooks del plugin **se suman** a los del repo consumidor (mismo evento → corren ambos; un
   exit 2 de cualquiera bloquea). Exit codes: 0 = seguir, 2 = bloquear con stderr al modelo.
 - **CI mínimo** (`validate` en cada PR y push a main): corre `tests/validate.sh` y, si el PR
-  toca `hooks/`, `bin/`, `agents/`, `skills/` o `.mcp.json`, **falla si `version` no sube**.
+  toca `hooks/`, `scripts/`, `agents/`, `skills/` o `.mcp.json`, **falla si `version` no sube**.
   No sustituye a probar en un repo consumidor antes del push: CI valida el plugin en el vacío,
   no su efecto en los consumidores.
 
@@ -269,7 +269,7 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
 - **En ESTE repo el `.mcp.json` se carga dos veces** y de ahí los MCP fallidos al abrir la
   sesión: al vivir en la raíz, Claude Code lo toma también como config **de proyecto**, ámbito
   en el que `${CLAUDE_PLUGIN_ROOT}` **no existe** → `postgres-prod`/`postgres-dev` fallan con
-  `ENOENT posix_spawn '${CLAUDE_PLUGIN_ROOT}/bin/...'`. Los del plugin, en paralelo, quedan en
+  `ENOENT posix_spawn '${CLAUDE_PLUGIN_ROOT}/scripts/...'`. Los del plugin, en paralelo, quedan en
   `CONNECTION_CLOSED` porque aquí no hay `DATABASE_URL_*` (esa es la guarda del launcher
   funcionando). Es ruido solo del repo fuente, no de los consumidores. La cura es
   **`disabledMcpjsonServers`** con `postgres-prod`/`postgres-dev` en el `settings.local.json`
@@ -361,6 +361,19 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   (la doc lo dice así: «Administrators can also set `"autoUpdate": true` on each
   `extraKnownMarketplaces` entry in managed settings»); en settings de proyecto no está
   confirmado que se aplique.
+- **Nada de `bin/` en la raíz (v1.2.0)**: el launcher vivía en `bin/` y pasó a `scripts/`
+  porque claude.ai **rechaza** un plugin con un `bin/` de primer nivel al repartirlo por
+  una organización (*«Plugin contains a top-level bin/ directory»*), tanto por
+  sincronización de marketplace como subiéndolo a mano. Claude Code no se queja, así que el
+  fallo solo aparecería al distribuirlo por claude.ai; `validate.sh` lo para antes. Esa vía
+  (Organization settings → Plugins y habilidades) es **la única que lleva el plugin a las
+  sesiones en la nube**: allí no se instalan los plugins que declara el repo. Pide además
+  que el repo del marketplace sea privado, y este es público. La salida es un repo privado
+  puente con solo un `marketplace.json` que liste `taller` con fuente
+  `{"source": "github", "repo": "gabriel23cg/claude-taller"}`: la sincronización de la
+  organización acepta fuentes de plugin públicas. Ese repo solo se resincroniza con un push
+  propio o con *Re-sync*, así que una versión nueva de taller no llega a la nube hasta que
+  alguien pulse *Re-sync*.
 - **`context7` salió del `.mcp.json` en v0.3.0**: duplicaba el plugin oficial
   `context7@claude-plugins-official` (activo a nivel de usuario) y corrían dos servers por
   sesión. No lo re-añadas; lo mismo aplica antes de añadir cualquier MCP que ya exista como
