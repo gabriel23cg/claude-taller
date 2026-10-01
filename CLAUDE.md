@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Plugin + marketplace de Claude Code** (ambas cosas, el mismo repo): `taller`, las
 automatizaciones que comparten los proyectos de un mismo perfil. Los repos consumidores lo
 activan vía `extraKnownMarketplaces`/`enabledPlugins` en su `.claude/settings.json`
-versionado: al abrir cualquiera de ellos, Claude Code lo instala y lo activa solo. **Un
+versionado, y cada máquina lo instala una vez en scope `user`, desactivado en el perfil (el
+porqué, en el gotcha de instalación y en el README). **Un
 cambio aquí llega a todos los consumidores a la vez** — esa es la razón de existir del repo,
 y también su riesgo: piensa cada cambio como si editaras el `.claude/` de todos ellos.
 
@@ -295,43 +296,59 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   fallo: es a propósito, para que la sesión en curso no cambie de hooks ni de agentes a
   medio trabajo.
 
-  **Lo que la doc no dice es si cubre todas las instalaciones** («updates installed plugins»,
-  sin mencionar scopes), y aquí hay varias — ver abajo. La única observación que tenemos
-  apunta a que no: el 2026-09-16, seis días después de activarlo, la de scope `user` iba dos
-  versiones atrasada. No es concluyente (puede que ninguna sesión llegara a los 10 min), así
-  que queda **sin verificar**. Cómo cerrarlo: tras un release, abrir sesión en un consumidor,
-  esperar al aviso y mirar `claude plugin list`.
+  **Lo que no está verificado es que el auto-update llegue de verdad** a la instalación
+  (la doc dice «updates installed plugins», sin más). Hay una observación en contra, de
+  2026-09-16: seis días después de activarlo, la instalación de scope `user` iba dos
+  versiones atrasada. No es concluyente (puede que ninguna sesión llegara a los 10 min).
+  Con una sola instalación por máquina (ver el gotcha siguiente), cerrarlo es fácil: tras un
+  release, abrir sesión en un consumidor, esperar al aviso y mirar `claude plugin list`
+  desde dentro del repo.
 
   **El refresco manual** sirve para forzar la versión ya, o en máquinas sin auto-update. Son
   **dos pasos** y saltarse el segundo deja el plugin en la versión vieja (verificado):
   `claude plugin marketplace update taller` refresca el catálogo, y
-  `claude plugin update taller@taller --scope project` instala la
-  versión — **por scope**, y ahí está la trampa: no hay «una instalación por repo
-  consumidor». Verificado 2026-09-16 al publicar v0.6.0, `claude plugin list` devolvía
-  **siete** instalaciones del plugin:
-  - una de scope **`user`**, que es global, que nadie documentaba y que llevaba dos
-    versiones desfasada (0.5.0 cuando el resto iba por 0.6.0). Se refresca con
-    `--scope user`, y hay que acordarse: no la toca ningún refresco de proyecto.
-  - una de scope `project` por cada directorio desde el que alguien haya corrido un
-    `claude plugin install/update --scope project`, y eso incluye **los worktrees**. Un
-    worktree NO nace con entrada propia: hereda (cae al scope `user`) hasta que alguien
-    hace ahí dentro una operación de scope `project`; desde ese momento tiene la suya y se
-    queda congelada en esa versión. Las entradas **sobreviven al borrado del worktree**: el
-    registro (`~/.claude/plugins/installed_plugins.json`) acumula huérfanas apuntando a
-    directorios inexistentes. Son inofensivas —nada puede cargar de un directorio que no
-    existe— pero ensucian el recuento de `claude plugin list`, así que no te asustes si ves
-    más instalaciones que directorios.
+  `claude plugin update taller@taller --scope user` instala la versión. Es **un solo
+  registro** porque la instalación es una sola por máquina, de scope `user` (ver el gotcha
+  siguiente). Que el `update` funcione con el plugin desactivado en el perfil está sin
+  probar.
 
   Consecuencia práctica: tras subir `version`, con auto-update **no hay que hacer nada**
   salvo aceptar el `/reload-plugins` cuando avise. El manual se corre solo cuando hace falta
   la versión *ya* —p. ej. cuando un consumidor borra su copia local de un agente para pasar
-  a usar la del plugin, y hasta que llegue la versión nueva se queda sin ninguno— y entonces en ese
-  repo, en cada worktree vivo que se vaya a usar, y una vez con `--scope user`. Si un
-  agente o una skill nueva «no aparece» después de `/reload-plugins`, el primer sitio donde
-  mirar es `claude plugin list`: casi seguro que el scope desde el que trabajas sigue en la
-  versión vieja. `/reload-plugins` **sí** recarga agentes y skills (verificado 2026-09-16: un
-  agente nuevo pasó a ser invocable sin reiniciar la sesión) — pero solo puede cargar lo que
-  la versión instalada EN ESE SCOPE contenga.
+  a usar la del plugin, y hasta que llegue la versión nueva se queda sin ninguno—. Si un
+  agente o una skill nueva «no aparece» después de `/reload-plugins`, mira
+  `claude plugin list` desde dentro del repo: dice qué versión tiene el registro.
+  `/reload-plugins` **sí** recarga agentes y skills (verificado 2026-09-16: un agente nuevo
+  pasó a ser invocable sin reiniciar la sesión), pero solo puede cargar lo que la versión
+  instalada contenga.
+- **El `settings.json` del repo activa el plugin, pero no lo instala — y la instalación va
+  en scope `user`, desactivada en el perfil** (verificado 2026-10-01, Claude Code 2.1.287,
+  con `claude -p --debug` en un HOME limpio). Lo que se comprobó:
+  1. **Sin registro de instalación no carga al arrancar.** Con el marketplace ya clonado y el
+     repo declarándolo, el log de arranque dice `plugin-cache-miss` y `/plugin` → Errors
+     muestra `Plugin "taller" not cached at …/marketplaces/taller`. `claude plugin details`
+     y `/reload-plugins` sí lo encuentran, y por eso parece que basta con recargar: el error
+     vuelve en cada sesión nueva. La doc dice que un plugin de ruta relativa «needs no
+     install record», pero eso vale para marketplaces añadidos desde un directorio local;
+     este se añade desde GitHub.
+  2. **Un registro de scope `project` vale solo para su directorio exacto.** En otro
+     directorio con el mismo repo (un worktree) cargan 0 skills y 0 agentes. Además,
+     `install --scope project` reescribe el `.claude/settings.json` versionado (formato y
+     orden de claves). Así se llegó en septiembre a **siete** registros, una por cada
+     directorio donde alguien hizo un `install`/`update --scope project`, cada uno congelado
+     en su versión, y huérfanos que sobreviven al borrado del worktree.
+  3. **Un registro de scope `user` vale en cualquier directorio**, worktrees incluidos.
+     Desactivado en el perfil (`claude plugin disable taller@taller --scope user`), el `true`
+     del repo gana y carga **solo** donde un repo lo declara: en un directorio ajeno, 0
+     skills y sus MCP sin arrancar. `claude plugin list` lo da como `√ enabled` dentro del
+     repo, con la nota *«Disabled in ~/.claude/settings.json but still loads — project
+     settings enable it»*, y `× disabled` fuera.
+
+  Así que la instalación por máquina es la del README (`marketplace add` + `install --scope
+  user` + `disable --scope user`), y **`claude plugin list` es la forma de comprobarla**
+  desde dentro de un repo. No vuelvas a recomendar `--scope project` «porque lo dice la doc»:
+  la doc lo propone para colaboradores de un repo, no para un plugin que se usa en varios
+  repos y en sus worktrees.
 
   El `"autoUpdate"` por entrada de `extraKnownMarketplaces` es solo para *managed settings*
   (la doc lo dice así: «Administrators can also set `"autoUpdate": true` on each

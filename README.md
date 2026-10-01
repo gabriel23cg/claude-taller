@@ -232,9 +232,14 @@ hace el trabajo de otra.
   pasa por `terraform-plan-reviewer` contra `.claude/plan-invariantes.md`. Nunca mergea ni
   aplica. Se invoca desde `/check-work` cuando el diff toca infraestructura.
 
-## Cómo lo consume un repo
+## Instalación
 
-En el `.claude/settings.json` (versionado) del repo consumidor:
+Son dos piezas, y hacen falta las dos: el **repo** activa el plugin y cada **máquina** lo
+instala. Ninguna hace el trabajo de la otra.
+
+### 1. En el repo consumidor (una vez, versionado)
+
+En su `.claude/settings.json`:
 
 ```json
 {
@@ -252,7 +257,53 @@ En el `.claude/settings.json` (versionado) del repo consumidor:
 }
 ```
 
-Al abrir el repo, Claude Code detecta el marketplace, instala el plugin y lo activa.
+Esto dice de dónde sale el plugin y lo **activa** en ese repo. No lo descarga.
+
+### 2. En cada máquina (una vez)
+
+```bash
+claude plugin marketplace add gabriel23cg/claude-taller   # clona el catálogo
+claude plugin install taller@taller --scope user           # lo descarga: un registro válido en cualquier directorio
+claude plugin disable taller@taller --scope user           # apagado en tu perfil: solo lo enciende el repo que lo declara
+```
+
+Córrelo desde `~`, no desde un repo. Después, en una sesión: `/plugin` → **Marketplaces** →
+`taller` → *Enable auto-update* (en marketplaces de terceros nace apagado; ver
+[Versionado y actualización](#versionado-y-actualización)).
+
+**Por qué así** (comprobado el 2026-10-01 con Claude Code 2.1.287):
+
+- **El repo activa, pero no instala.** Al arrancar una sesión, Claude Code solo carga los
+  plugins que tienen registro en `~/.claude/plugins/installed_plugins.json`. Sin él, la
+  pestaña Errors de `/plugin` muestra `Plugin "taller" not cached at
+  …/plugins/marketplaces/taller` en **cada arranque**, aunque `/reload-plugins` lo arregle
+  para esa sesión. Ese reload engaña: parece que basta y no basta.
+- **`--scope project` no sirve aquí.** Crea un registro atado a la ruta exacta del
+  directorio, así que un worktree del mismo repo arranca sin plugin. Y de paso reescribe el
+  `.claude/settings.json` versionado (cambia formato y orden de claves).
+- **`--scope user` + `disable` es lo que encaja.** El registro de scope `user` no lleva ruta
+  y vale en cualquier directorio, worktrees incluidos. El `disable` lo deja apagado en tu
+  perfil y el `true` del repo gana (los settings de proyecto mandan sobre los de usuario).
+  Resultado: carga solo donde un repo lo declara. Fuera de esos repos no arrancan sus MCP
+  (`azure-mcp`, `terraform`, los de Postgres), que no pintan nada en un proyecto sin Azure
+  ni BD.
+
+**Comprobar**, desde dentro de un repo consumidor:
+
+```bash
+claude plugin list                    # taller@taller · Scope: user · Status: √ enabled
+claude plugin details taller@taller   # 7 skills, 4 agentes, 3 hooks, 4 MCP
+```
+
+`list` añade una nota, *«Disabled in ~/.claude/settings.json but still loads — project
+settings enable it»*: es justo lo buscado. Fuera de un repo consumidor sale `× disabled`,
+y también es lo esperado. Y en una sesión nueva, la pestaña Errors de `/plugin` tiene que
+estar vacía.
+
+En **sesiones en la nube** (claude.ai/code) no carga por ninguna de las dos vías: la doc
+dice que no cargan ni los plugins instalados en tu máquina ni los que activa el
+`.claude/settings.json` del repo.
+
 Los hooks del plugin **se suman** a los hooks propios del repo (si ambos corren sobre el
 mismo evento, un exit 2 de cualquiera bloquea).
 
@@ -293,21 +344,21 @@ defecto** (solo los oficiales de Anthropic lo traen activado). Dos formas de cer
 - **Refrescar a mano** cuando quieras la versión nueva ya. Son **dos pasos**, y saltarse el
   segundo es el error fácil (verificado 2026-09-10):
   ```bash
-  claude plugin marketplace update taller   # refresca el CATÁLOGO
-  claude plugin update taller@taller --scope project   # instala la versión
+  claude plugin marketplace update taller           # refresca el CATÁLOGO
+  claude plugin update taller@taller --scope user   # instala la versión
   ```
   El primero solo actualiza el catálogo del marketplace: deja el plugin instalado en la
-  versión vieja. El segundo es el que la baja a disco, y es **por scope**: `--scope user`
-  (el default) no toca las instalaciones de scope `project`, y esas son **una por repo
-  consumidor**, así que el comando se corre **dentro de cada repo**. Ambos exigen reiniciar
-  la sesión (o `/reload-plugins`) para que la sesión en curso los vea.
+  versión vieja. El segundo es el que la baja a disco. Con la instalación de arriba hay un
+  solo registro, el de scope `user`, así que es un único `update` para todos los repos y
+  worktrees de la máquina. Que funcione con el plugin desactivado en el perfil está **sin
+  probar**; si se queja, `enable --scope user`, `update` y otra vez `disable`. Ambos pasos
+  exigen reiniciar la sesión (o `/reload-plugins`) para que la sesión en curso los vea.
 
 El auto-update es **por máquina, no por repo**: el marketplace se registra una vez en
 `~/.claude/plugins/known_marketplaces.json` y esa entrada sirve a todos los consumidores, así
-que basta activarlo una vez. Lo que **no está verificado** es que el auto-update alcance
-todas las instalaciones (la de scope `user` y una por repo/worktree de scope `project`):
-la doc dice «updates installed plugins» sin hablar de scopes. Si tras un release un repo
-sigue en la versión vieja, `claude plugin list` lo dice y el refresco manual lo arregla.
+que basta activarlo una vez. Con un único registro de scope `user` tampoco hay
+instalaciones por repo que se queden atrás. Si tras un release un repo sigue en la versión
+vieja, `claude plugin list` (desde dentro del repo) lo dice y el refresco manual lo arregla.
 
 La doc menciona un `"autoUpdate": true` por entrada de `extraKnownMarketplaces`, pero
 **para *managed settings***. En settings de proyecto no está confirmado que se aplique (en
