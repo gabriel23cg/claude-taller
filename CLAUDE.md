@@ -373,7 +373,7 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   `{"source": "github", "repo": "gabriel23cg/claude-taller"}`: la sincronización de la
   organización acepta fuentes de plugin públicas. Ese repo solo se resincroniza con un push
   propio o con *Re-sync*, así que una versión nueva de taller no llega a la nube hasta que
-  alguien pulse *Re-sync*.
+  alguien pulse *Re-sync*. Los pasos, generalizados, están en el README («3. En la nube»).
 - **`context7` salió del `.mcp.json` en v0.3.0**: duplicaba el plugin oficial
   `context7@claude-plugins-official` (activo a nivel de usuario) y corrían dos servers por
   sesión. No lo re-añadas; lo mismo aplica antes de añadir cualquier MCP que ya exista como
