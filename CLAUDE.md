@@ -50,6 +50,7 @@ se escribe.
 .claude-plugin/marketplace.json  # este repo como marketplace; el plugin es source "./"
 hooks/hooks.json                 # wiring de los 8 hooks (PreToolUse/PostToolUse/Stop)
 hooks/*.sh                       # los hooks (bash 3.2-compatible: sin mapfile)
+hooks/lib/dir-proyecto.sh        # de qué directorio parte cada hook (el worktree de la sesión)
 scripts/postgres-mcp-launcher.sh # guarda de los MCP de Postgres (valida la URL antes de arrancar)
 agents/*.md                      # agentes: triage de backlog, cobertura de tests, plan de
                                  #   Terraform, migraciones Alembic
@@ -242,6 +243,20 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   trampas: **`PostToolUse` DESCARTA `systemMessage`** (ahí solo vale `additionalContext`,
   que va al modelo, no al usuario), y exit 2 no es alternativa para informar: bloquea, y un
   hook que bloquea para contar algo se acaba desactivando.
+- **En un git worktree, `CLAUDE_PROJECT_DIR` puede apuntar a la copia principal** (issue
+  #2; doc de worktrees: *«`${CLAUDE_PROJECT_DIR}` stays put: it still points at the
+  project root where the session started»*). Comprobado con sesiones reales (`claude -p`
+  anidado con `--plugin-dir`, Claude Code 2.1.287, 2026-10-02): tras un `EnterWorktree`,
+  el hook recibe `cwd` = worktree y `CLAUDE_PROJECT_DIR` = principal. Con `claude
+  --worktree` no: la sesión arranca en el worktree y la variable ya apunta a él. En la app
+  de escritorio se observó el desfase (el issue). El worktree solo llega por el `cwd` del
+  JSON de entrada, que además *«moves again when Claude runs `cd`»*. Por eso ningún hook
+  hace `cd "$CLAUDE_PROJECT_DIR"`: todos piden el directorio a `hooks/lib/dir-proyecto.sh`. El helper toma el `cwd` solo si es otro worktree del
+  **mismo** repo (si no, tras un `cd` a un clon temporal, `ruff-fix-on-stop` formatearía
+  un repo ajeno), y en una sesión normal devuelve `CLAUDE_PROJECT_DIR` sin tocar. Hasta
+  v1.2.0, desde una sesión en un worktree, `ruff-fix-on-stop` y `terraform-fmt-on-stop`
+  formateaban los ficheros de la copia principal, que puede tener trabajo a medias de
+  otra sesión. `validate.sh` rechaza un hook que vuelva a leer la variable a secas.
 - **`block-terraform-apply` da falso positivo** si cualquier comando Bash CONTIENE la cadena
   "terraform apply" — incluidos mensajes de commit. Se sortea reformulando el texto. Es un
   trade-off deliberado (un parser más listo arriesga falsos negativos).

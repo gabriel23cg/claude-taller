@@ -25,15 +25,20 @@ case "$file_path" in
 esac
 [[ -f "$file_path" ]] || exit 0
 
-# Solo en proyectos Python con ruff configurado (guarda de plugin multi-repo).
-[[ -f "$CLAUDE_PROJECT_DIR/pyproject.toml" ]] || exit 0
-grep -q '^\[tool\.ruff\]' "$CLAUDE_PROJECT_DIR/pyproject.toml" || exit 0
+# En un worktree, CLAUDE_PROJECT_DIR puede ser la copia principal: la guarda leería el
+# pyproject de otra copia de trabajo y `uv run` usaría su entorno (ver
+# lib/dir-proyecto.sh).
+dir=$(printf '%s' "$input" | "$(dirname "$0")/lib/dir-proyecto.sh")
 
-cd "$CLAUDE_PROJECT_DIR"
+# Solo en proyectos Python con ruff configurado (guarda de plugin multi-repo).
+[[ -f "$dir/pyproject.toml" ]] || exit 0
+grep -q '^\[tool\.ruff\]' "$dir/pyproject.toml" || exit 0
+
+cd "$dir"
 
 # Solo procesamos archivos dentro del proyecto.
 case "$file_path" in
-  "$CLAUDE_PROJECT_DIR"*) ;;
+  "$dir"*) ;;
   *) exit 0 ;;
 esac
 

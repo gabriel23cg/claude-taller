@@ -54,6 +54,14 @@ aquí: se queda en el `.claude/` de ese repo.
 | `coverage-report.sh` | Stop | Muestra la cobertura **del diff** (no la global) al final de cada turno que tocó código, leyendo el informe que ya exista (`coverage.xml` Cobertura o `lcov.info`). No corre los tests, no bloquea nunca, y avisa si el informe es anterior a los cambios. Si el repo mide cobertura pero no la vuelca a fichero, lo diagnostica con el flag exacto que falta en vez de callar. Sale por `systemMessage` en JSON. | No hay git, no hubo cambios, o el repo no mide cobertura en absoluto |
 | `plan-invariantes-drift.sh` | Stop | Si el turno añadió o quitó `resource`/`module`/`data` en `infra/` sin tocar `.claude/plan-invariantes.md`, exit 2 para que se revisen los invariantes (una vez por cadena de Stop). | No hay `infra/`, no hay git, o el cambio no es estructural (tags, defaults) |
 
+Los cinco que miran ficheros del repo (`ruff-on-edit`, `ruff-fix-on-stop`,
+`terraform-fmt-on-stop`, `coverage-report` y `plan-invariantes-drift`) trabajan sobre el
+**worktree de la sesión**, no sobre la copia principal. Cuando una sesión entra en un
+worktree a mitad de camino (`EnterWorktree`) o viene de la app de escritorio,
+`CLAUDE_PROJECT_DIR` sigue apuntando a la principal, así que el directorio sale del `cwd`
+que Claude Code pasa al hook (desde v1.2.1; antes, los de formato tocaban los ficheros de
+la principal).
+
 ### Servidores MCP (`.mcp.json`)
 
 Arrancan solos al habilitar el plugin (sin `enabledMcpjsonServers` por usuario). Sus
