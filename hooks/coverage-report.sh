@@ -30,7 +30,12 @@
 
 set -uo pipefail
 
-cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
+# El directorio sale del `cwd` de la sesión, no de CLAUDE_PROJECT_DIR a secas: en un
+# worktree, este apunta a la copia principal y el hook mediría el diff y el informe de otra
+# copia de trabajo (issue #2; el porqué entero, en lib/dir-proyecto.sh).
+input=$(cat 2>/dev/null || true)
+dir=$(printf '%s' "$input" | "$(dirname "$0")/lib/dir-proyecto.sh")
+cd "$dir" 2>/dev/null || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 

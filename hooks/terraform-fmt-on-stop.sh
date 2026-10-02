@@ -11,7 +11,11 @@
 
 set -euo pipefail
 
-cd "$CLAUDE_PROJECT_DIR"
+# En un worktree, CLAUDE_PROJECT_DIR es la copia principal: formatearíamos el infra/ de
+# OTRA copia de trabajo y no el de esta sesión (ver lib/dir-proyecto.sh).
+input=$(cat 2>/dev/null || true)
+dir=$(printf '%s' "$input" | "$(dirname "$0")/lib/dir-proyecto.sh")
+cd "$dir"
 
 [[ -d infra ]] || exit 0
 command -v terraform >/dev/null 2>&1 || exit 0

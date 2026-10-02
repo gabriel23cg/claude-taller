@@ -39,12 +39,13 @@ for f in .mcp.json .claude-plugin/plugin.json .claude-plugin/marketplace.json ho
 done
 
 head_ "Sintaxis bash"
-for f in hooks/*.sh scripts/*.sh tests/*.sh; do
+for f in hooks/*.sh hooks/lib/*.sh scripts/*.sh tests/*.sh; do
   if bash -n "$f" 2>/dev/null; then ok "$f"; else ko "$f: error de sintaxis"; fi
 done
 
 head_ "Scripts ejecutables"
-for f in hooks/*.sh scripts/*.sh; do
+# hooks/lib/ también: sus helpers se invocan, no se cargan con `source`.
+for f in hooks/*.sh hooks/lib/*.sh scripts/*.sh; do
   if [[ -x "$f" ]]; then ok "$f +x"; else ko "$f sin bit de ejecución (fallaría al invocarlo el plugin)"; fi
 done
 
@@ -349,6 +350,119 @@ rm -rf "$d"
 
 salida=$(printf '{}' | env "CLAUDE_PROJECT_DIR=$tmp" "$COV" 2>/dev/null)
 if [[ -z "$salida" ]]; then ok "no-op en repo sin git ni informe"; else ko "no-op: dijo algo"; fi
+
+head_ "Ningún hook resuelve el proyecto con CLAUDE_PROJECT_DIR a secas"
+# En un worktree, CLAUDE_PROJECT_DIR apunta a la copia principal (issue #2): un hook nuevo
+# que haga `cd "$CLAUDE_PROJECT_DIR"` vuelve a meter el bug, y en uno que formatea, a
+# tocar ficheros de otra copia de trabajo. El único que la lee es hooks/lib/dir-proyecto.sh,
+# que el glob hooks/*.sh no incluye. Los comentarios no cuentan: los hooks explican por
+# qué no la usan. Control positivo, como en el de confidence: un patrón que no casa nada
+# pasaría igual que uno correcto.
+PDIR_RE='^[^#]*\$\{?CLAUDE_PROJECT_DIR'
+printf 'cd "${CLAUDE_PROJECT_DIR:-.}"\n' > "$tmp/pdir-control.sh"
+if grep -qE "$PDIR_RE" "$tmp/pdir-control.sh"; then ok "el patrón caza un cd a CLAUDE_PROJECT_DIR"
+else ko "el patrón no caza ni el control positivo: está roto, no hay nada verificado"; fi
+malos=$(grep -nE "$PDIR_RE" hooks/*.sh 2>/dev/null || true)
+if [[ -z "$malos" ]]; then ok "todos pasan por hooks/lib/dir-proyecto.sh"
+else ko "CLAUDE_PROJECT_DIR a secas (usa hooks/lib/dir-proyecto.sh): $malos"; fi
+
+head_ "Smoke: sesión en un git worktree"
+# El caso del issue #2. La doc de worktrees lo deja así a propósito: CLAUDE_PROJECT_DIR
+# «stays put» en la copia principal y el worktree solo llega por el `cwd` del JSON. Cada
+# repo de pega tiene la copia principal Y un worktree en .claude/worktrees/, donde los deja
+# Claude Code, y cada caso pone en los dos cosas DISTINTAS: si el hook mirase la principal,
+# la salida lo delataría. Sin eso, un test que pasa no distingue un arreglo de una suerte.
+DIRP=$PWD/hooks/lib/dir-proyecto.sh
+wt_repo() { # crea <d>/main con un worktree en <d>/main/.claude/worktrees/wt e imprime <d>
+  local d; d=$(mktemp -d)
+  ( cd "$d" && git init -q main && cd main && mkdir -p src infra backend \
+    && printf '.claude/worktrees/\n' > .gitignore \
+    && printf 'def a():\n    return 1\n' > src/foo.py \
+    && printf 'resource "azurerm_resource_group" "rg" {\n  name = "x"\n}\n' > infra/main.tf \
+    && printf '[project]\nname = "x"\n\n[tool.ruff]\n' > pyproject.toml \
+    && printf 'x\n' > backend/README \
+    && git add -A && git -c user.email=t@t -c user.name=t commit -qm base \
+    && git worktree add -q .claude/worktrees/wt ) >/dev/null 2>&1
+  printf '%s' "$d"
+}
+# El helper devuelve la raíz que da git, con los symlinks resueltos (/tmp en macOS es
+# /private/tmp): la esperada se calcula igual, o el test fallaría solo en un Mac.
+wt_de() { (cd "$1/main/.claude/worktrees/wt" && pwd -P); }
+dirp() { # dirp <descripción> <esperado> <CLAUDE_PROJECT_DIR> <json>
+  local got; got=$(printf '%s' "$4" | env "CLAUDE_PROJECT_DIR=$3" "$DIRP" 2>/dev/null)
+  if [[ "$got" == "$2" ]]; then ok "$1"; else ko "$1: esperado $2, obtenido ${got:-(vacío)}"; fi
+}
+
+d=$(wt_repo); M=$d/main; W=$(wt_de "$d")
+mkdir -p "$d/otro" && git -C "$d/otro" init -q
+dirp "sesión normal: CLAUDE_PROJECT_DIR tal cual, sin normalizar" "$M" "$M" "{\"cwd\":\"$M\"}"
+dirp "sesión normal con cwd en un subdirectorio: igual"            "$M" "$M" "{\"cwd\":\"$M/src\"}"
+dirp "worktree: su raíz"                                           "$W" "$M" "{\"cwd\":\"$W\"}"
+dirp "cwd en un subdirectorio del worktree: la raíz del worktree"  "$W" "$M" "{\"cwd\":\"$W/src\"}"
+dirp "proyecto en un subdirectorio: el mismo, dentro del worktree" "$W/backend" "$M/backend" "{\"cwd\":\"$W\"}"
+# El cwd «moves again when Claude runs cd» (doc): seguirlo a otro repo haría que un hook
+# que formatea tocase un repo que no es el proyecto.
+dirp "cwd en OTRO repo: no lo sigue"                               "$M" "$M" "{\"cwd\":\"$d/otro\"}"
+dirp "cwd fuera de git: CLAUDE_PROJECT_DIR"                        "$M" "$M" "{\"cwd\":\"$d\"}"
+dirp "sin cwd en la entrada: CLAUDE_PROJECT_DIR"                   "$M" "$M" '{}'
+rm -rf "$d"
+
+# coverage-report: el caso exacto del issue. Mismo cambio en las dos copias, informes con
+# cifras distintas: 0% del diff en la principal, 50% en el worktree.
+cov_wt() { # cov_wt <descripción> <patrón esperado> <cwd>
+  local salida; salida=$(printf '{"cwd":"%s"}' "$3" | env "CLAUDE_PROJECT_DIR=$M" "$COV" 2>/dev/null)
+  if printf '%s' "$salida" | grep -q "$2"; then ok "$1"; else ko "$1: salida = ${salida:-(vacía)}"; fi
+}
+cov_xml() { # cov_xml <hits línea 4> <hits línea 5>
+  printf '%s\n' '<coverage><packages><package><classes><class filename="src/foo.py"><lines>' \
+    "<line number=\"1\" hits=\"1\"/><line number=\"2\" hits=\"1\"/><line number=\"4\" hits=\"$1\"/><line number=\"5\" hits=\"$2\"/>" \
+    '</lines></class></classes></package></packages></coverage>'
+}
+d=$(wt_repo); M=$d/main; W=$(wt_de "$d")
+for c in "$M" "$W"; do printf '\ndef b():\n    return 2\n' >> "$c/src/foo.py"; done
+cov_xml 0 0 > "$M/coverage.xml"; cov_xml 1 0 > "$W/coverage.xml"
+cov_wt "control: con cwd en la principal lee el de la principal" '0% de lo nuevo'  "$M"
+cov_wt "con cwd en el worktree lee el informe del worktree"      '50% de lo nuevo' "$W"
+# La otra cara: con la principal limpia, el hook antiguo callaba aunque el worktree
+# tuviera cambios (su guarda `git diff HEAD --quiet` miraba la principal).
+git -C "$M" checkout -q -- src/foo.py
+cov_wt "principal limpia y worktree con cambios: habla"          '50% de lo nuevo' "$W"
+rm -rf "$d"
+
+# plan-invariantes-drift: alta de recurso solo en el worktree.
+d=$(wt_repo); M=$d/main; W=$(wt_de "$d")
+printf 'resource "azurerm_storage_account" "sa" {\n  name = "y"\n}\n' >> "$W/infra/main.tf"
+hook_exit 2 "drift: alta de resource en el worktree, principal limpia" "$DRIFT" \
+  "{\"stop_hook_active\":false,\"cwd\":\"$W\"}" "CLAUDE_PROJECT_DIR=$M"
+hook_exit 0 "drift: control, con cwd en la principal no hay nada" "$DRIFT" \
+  "{\"stop_hook_active\":false,\"cwd\":\"$M\"}" "CLAUDE_PROJECT_DIR=$M"
+rm -rf "$d"
+
+# Los tres que ESCRIBEN: aquí el bug no era una cifra mala, era formatear otra copia de
+# trabajo. Stubs de terraform y uv que apuntan desde dónde y sobre qué se les llama.
+d=$(wt_repo); M=$d/main; W=$(wt_de "$d")
+mkdir -p "$d/stub"
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$(pwd -P)" "$*" >> "$STUB_LOG"\n' > "$d/stub/uv"
+cp "$d/stub/uv" "$d/stub/terraform"; chmod +x "$d/stub/uv" "$d/stub/terraform"
+stub_log_es() { # stub_log_es <descripción> <primera línea esperada>
+  local primera; primera=$(head -1 "$d/log" 2>/dev/null)
+  if [[ "$primera" == "$2" ]] && ! grep -q "^$M|" "$d/log" 2>/dev/null; then ok "$1"
+  else ko "$1: log = $(tr '\n' ' ' < "$d/log" 2>/dev/null)"; fi
+  rm -f "$d/log"
+}
+# Cambios distintos en cada copia: el hook antiguo habría formateado src/solo_main.py.
+printf 'y = 2\n' > "$M/src/solo_main.py"
+printf 'z = 3\n' >> "$W/src/foo.py"
+hook_exit 0 "ruff-fix-on-stop en un worktree" "$PWD/hooks/ruff-fix-on-stop.sh" \
+  "{\"stop_hook_active\":false,\"cwd\":\"$W\"}" "CLAUDE_PROJECT_DIR=$M" "PATH=$d/stub:$PATH" "STUB_LOG=$d/log"
+stub_log_es "ruff-fix-on-stop formatea los .py del worktree, no los de la principal" "$W|run ruff format src/foo.py"
+hook_exit 0 "ruff-on-edit en un worktree" "$PWD/hooks/ruff-on-edit.sh" \
+  "{\"tool_input\":{\"file_path\":\"$W/src/foo.py\"},\"cwd\":\"$W\"}" "CLAUDE_PROJECT_DIR=$M" "PATH=$d/stub:$PATH" "STUB_LOG=$d/log"
+stub_log_es "ruff-on-edit corre uv desde el worktree" "$W|run ruff format $W/src/foo.py"
+hook_exit 0 "terraform-fmt-on-stop en un worktree" "$PWD/hooks/terraform-fmt-on-stop.sh" \
+  "{\"cwd\":\"$W\"}" "CLAUDE_PROJECT_DIR=$M" "PATH=$d/stub:$PATH" "STUB_LOG=$d/log"
+stub_log_es "terraform-fmt-on-stop formatea el infra/ del worktree" "$W|-chdir=infra fmt -recursive"
+rm -rf "$d"
 
 head_ "Smoke: postgres-mcp-launcher"
 LAUNCHER=scripts/postgres-mcp-launcher.sh
