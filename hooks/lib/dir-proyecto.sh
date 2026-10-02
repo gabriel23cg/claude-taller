@@ -2,14 +2,15 @@
 # Imprime el directorio sobre el que debe trabajar un hook: el proyecto de
 # CLAUDE_PROJECT_DIR, pero en el git worktree donde está la sesión.
 #
-# Por qué existe: en una sesión dentro de un worktree (`--worktree`, `EnterWorktree` o la
-# app de escritorio, todos en `<repo>/.claude/worktrees/<nombre>`), CLAUDE_PROJECT_DIR
-# apunta a la copia PRINCIPAL, no al worktree. Es así por diseño (doc de worktrees,
-# verificado 2026-10-02: «`${CLAUDE_PROJECT_DIR}` stays put: it still points at the
-# project root where the session started»), y se notó en la práctica en el issue #2. Un
-# hook que hace `cd "$CLAUDE_PROJECT_DIR"` mide, avisa o —lo peor— formatea los ficheros
-# de otra copia de trabajo, que puede tener cambios a medias de otra sesión. Y calla
-# cuando el worktree sí tiene algo que decir.
+# Por qué existe: cuando la sesión ENTRA en un worktree a mitad de camino
+# (`EnterWorktree`) y en las sesiones en worktree de la app de escritorio (issue #2),
+# CLAUDE_PROJECT_DIR sigue apuntando a la copia PRINCIPAL. Es así por diseño (doc de
+# worktrees: «stays put: it still points at the project root where the session
+# started»), y comprobado con una sesión real (Claude Code 2.1.287, 2026-10-02). Con
+# `claude --worktree` no pasa: la sesión ARRANCA en el worktree y la variable ya apunta a
+# él. Un hook que hace `cd "$CLAUDE_PROJECT_DIR"` mide, avisa o —lo peor— formatea los
+# ficheros de otra copia de trabajo, que puede tener cambios a medias de otra sesión. Y
+# calla cuando el worktree sí tiene algo que decir.
 #
 # La señal del worktree es el `cwd` del JSON de entrada del hook (misma doc: «is the
 # worktree root, and it moves again when Claude runs `cd`»). Ese «moves again» es por lo

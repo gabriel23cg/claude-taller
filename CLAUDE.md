@@ -243,12 +243,15 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   trampas: **`PostToolUse` DESCARTA `systemMessage`** (ahí solo vale `additionalContext`,
   que va al modelo, no al usuario), y exit 2 no es alternativa para informar: bloquea, y un
   hook que bloquea para contar algo se acaba desactivando.
-- **En un git worktree, `CLAUDE_PROJECT_DIR` apunta a la copia principal** (issue #2;
-  verificado contra la doc de worktrees, 2026-10-02: *«`${CLAUDE_PROJECT_DIR}` stays put:
-  it still points at the project root where the session started»*). El worktree solo
-  llega por el `cwd` del JSON de entrada, que además *«moves again when Claude runs
-  `cd`»*. Por eso ningún hook hace `cd "$CLAUDE_PROJECT_DIR"`: todos piden el directorio
-  a `hooks/lib/dir-proyecto.sh`. El helper toma el `cwd` solo si es otro worktree del
+- **En un git worktree, `CLAUDE_PROJECT_DIR` puede apuntar a la copia principal** (issue
+  #2; doc de worktrees: *«`${CLAUDE_PROJECT_DIR}` stays put: it still points at the
+  project root where the session started»*). Comprobado con sesiones reales (`claude -p`
+  anidado con `--plugin-dir`, Claude Code 2.1.287, 2026-10-02): tras un `EnterWorktree`,
+  el hook recibe `cwd` = worktree y `CLAUDE_PROJECT_DIR` = principal. Con `claude
+  --worktree` no: la sesión arranca en el worktree y la variable ya apunta a él. En la app
+  de escritorio se observó el desfase (el issue). El worktree solo llega por el `cwd` del
+  JSON de entrada, que además *«moves again when Claude runs `cd`»*. Por eso ningún hook
+  hace `cd "$CLAUDE_PROJECT_DIR"`: todos piden el directorio a `hooks/lib/dir-proyecto.sh`. El helper toma el `cwd` solo si es otro worktree del
   **mismo** repo (si no, tras un `cd` a un clon temporal, `ruff-fix-on-stop` formatearía
   un repo ajeno), y en una sesión normal devuelve `CLAUDE_PROJECT_DIR` sin tocar. Hasta
   v1.2.0, desde una sesión en un worktree, `ruff-fix-on-stop` y `terraform-fmt-on-stop`

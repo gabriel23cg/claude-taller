@@ -56,7 +56,8 @@ aquí: se queda en el `.claude/` de ese repo.
 
 Los cinco que miran ficheros del repo (`ruff-on-edit`, `ruff-fix-on-stop`,
 `terraform-fmt-on-stop`, `coverage-report` y `plan-invariantes-drift`) trabajan sobre el
-**worktree de la sesión**, no sobre la copia principal. En un git worktree,
+**worktree de la sesión**, no sobre la copia principal. Cuando una sesión entra en un
+worktree a mitad de camino (`EnterWorktree`) o viene de la app de escritorio,
 `CLAUDE_PROJECT_DIR` sigue apuntando a la principal, así que el directorio sale del `cwd`
 que Claude Code pasa al hook (desde v1.2.1; antes, los de formato tocaban los ficheros de
 la principal).

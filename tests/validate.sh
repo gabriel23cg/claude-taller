@@ -352,12 +352,12 @@ salida=$(printf '{}' | env "CLAUDE_PROJECT_DIR=$tmp" "$COV" 2>/dev/null)
 if [[ -z "$salida" ]]; then ok "no-op en repo sin git ni informe"; else ko "no-op: dijo algo"; fi
 
 head_ "Ningún hook resuelve el proyecto con CLAUDE_PROJECT_DIR a secas"
-# En un worktree, CLAUDE_PROJECT_DIR apunta a la copia principal (issue #2): un hook nuevo
-# que haga `cd "$CLAUDE_PROJECT_DIR"` vuelve a meter el bug, y en uno que formatea, a
-# tocar ficheros de otra copia de trabajo. El único que la lee es hooks/lib/dir-proyecto.sh,
-# que el glob hooks/*.sh no incluye. Los comentarios no cuentan: los hooks explican por
-# qué no la usan. Control positivo, como en el de confidence: un patrón que no casa nada
-# pasaría igual que uno correcto.
+# En un worktree, CLAUDE_PROJECT_DIR puede apuntar a la copia principal (issue #2): un
+# hook nuevo que haga `cd "$CLAUDE_PROJECT_DIR"` vuelve a meter el bug, y en uno que
+# formatea, a tocar ficheros de otra copia de trabajo. El único que la lee es
+# hooks/lib/dir-proyecto.sh, que el glob hooks/*.sh no incluye. Los comentarios no
+# cuentan: los hooks explican por qué no la usan. Control positivo, como en el de
+# confidence: un patrón que no casa nada pasaría igual que uno correcto.
 PDIR_RE='^[^#]*\$\{?CLAUDE_PROJECT_DIR'
 printf 'cd "${CLAUDE_PROJECT_DIR:-.}"\n' > "$tmp/pdir-control.sh"
 if grep -qE "$PDIR_RE" "$tmp/pdir-control.sh"; then ok "el patrón caza un cd a CLAUDE_PROJECT_DIR"

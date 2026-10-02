@@ -25,8 +25,9 @@ set -euo pipefail
 input=$(cat 2>/dev/null || true)
 stop_active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)
 
-# En un worktree, CLAUDE_PROJECT_DIR es la copia principal: formatearíamos los .py
-# cambiados de OTRA copia de trabajo, quizá con trabajo a medias (ver lib/dir-proyecto.sh).
+# En un worktree, CLAUDE_PROJECT_DIR puede ser la copia principal: formatearíamos los
+# .py cambiados de OTRA copia de trabajo, quizá con trabajo a medias (ver
+# lib/dir-proyecto.sh).
 dir=$(printf '%s' "$input" | "$(dirname "$0")/lib/dir-proyecto.sh")
 cd "$dir"
 
