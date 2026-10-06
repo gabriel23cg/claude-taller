@@ -27,7 +27,10 @@ input=$(cat 2>/dev/null || true)
 stop_active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)
 [[ "$stop_active" == "true" ]] && exit 0
 
-cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
+# En un worktree, CLAUDE_PROJECT_DIR puede ser la copia principal: miraríamos el infra/
+# de otra copia de trabajo (ver lib/dir-proyecto.sh).
+dir=$(printf '%s' "$input" | "$(dirname "$0")/lib/dir-proyecto.sh")
+cd "$dir" 2>/dev/null || exit 0
 [[ -d infra ]] || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 git rev-parse --git-dir >/dev/null 2>&1 || exit 0

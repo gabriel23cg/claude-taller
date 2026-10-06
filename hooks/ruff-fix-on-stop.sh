@@ -22,9 +22,14 @@ set -euo pipefail
 
 # El input del hook trae stop_hook_active=true cuando este Stop ya es la continuación
 # forzada por un exit 2 nuestro anterior: se usa abajo para no re-bloquear en bucle.
-stop_active=$(jq -r '.stop_hook_active // false' 2>/dev/null || echo false)
+input=$(cat 2>/dev/null || true)
+stop_active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)
 
-cd "$CLAUDE_PROJECT_DIR"
+# En un worktree, CLAUDE_PROJECT_DIR puede ser la copia principal: formatearíamos los
+# .py cambiados de OTRA copia de trabajo, quizá con trabajo a medias (ver
+# lib/dir-proyecto.sh).
+dir=$(printf '%s' "$input" | "$(dirname "$0")/lib/dir-proyecto.sh")
+cd "$dir"
 
 # Solo en proyectos Python con ruff configurado.
 [[ -f pyproject.toml ]] || exit 0
