@@ -97,7 +97,7 @@ Cuando el grupo lleva más de un issue, esto cambia aguas abajo y no es automát
 - **`/check-work` contrasta contra TODOS** los issues del grupo, no contra el primero,
 - **`/land-pr` verifica que se cerraron todos**, no que se cerró alguno.
 
-## Paso 1 — Leer el issue entero, comentarios incluidos## Paso 1 — Leer el issue entero, comentarios incluidos
+## Paso 1 — Leer el issue entero, comentarios incluidos
 
 Una sola llamada:
 
