@@ -477,6 +477,64 @@ PATH="$tmp/stub:$PATH" DATABASE_URL_DEV='postgresql://envx' \
   expect_exit 0 "fallback headless: literal sin expandir + variable en el entorno" \
   "$LAUNCHER" DEV '${DATABASE_URL_DEV}'
 
+head_ "Smoke: postgres-mcp-launcher con máquina de salto"
+# Stub de ssh: registra cada llamada; con SSH_FALLOS_BIND=n, las n primeras fallan como un
+# puerto ocupado, y con SSH_FALLO, todas con ese mensaje. El túnel de verdad no se prueba
+# (haría falta un sshd): lo que se prueba es lo que el launcher le pide a ssh y a uvx.
+s="$tmp/salto"; mkdir -p "$s"
+cat > "$s/ssh" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$SSH_LOG"
+case " $* " in *" -O exit "*) exit 0 ;; esac
+n=$(cat "$SSH_CNT" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$SSH_CNT"
+if [ "$n" -le "${SSH_FALLOS_BIND:-0}" ]; then echo "bind [127.0.0.1]:1: Address already in use" >&2; exit 255; fi
+if [ -n "${SSH_FALLO:-}" ]; then echo "$SSH_FALLO" >&2; exit 255; fi
+exit 0
+EOF
+chmod +x "$s/ssh"
+salto() { # salto <args del launcher...>: stdout del launcher (lo que recibe uvx)
+  rm -f "$s/log" "$s/cnt"
+  PATH="$s:$tmp/stub:$PATH" SSH_LOG="$s/log" SSH_CNT="$s/cnt" "$LAUNCHER" "$@" 2>/dev/null
+}
+
+# La URL conserva host (verify-full y SNI) y conecta al túnel por hostaddr.
+out=$(salto PROD 'postgresql://lector:x@srv.privado.example:6432/bd?sslmode=verify-full' salto-pg)
+re='postgresql://lector:x@srv\.privado\.example:([0-9]+)/bd\?sslmode=verify-full&hostaddr=127\.0\.0\.1$'
+if [[ "$out" =~ $re ]] && grep -q -- "-L 127.0.0.1:${BASH_REMATCH[1]}:srv.privado.example:6432 salto-pg" "$s/log"; then
+  ok "salto: túnel al host:puerto de la URL y URL reescrita al puerto local"
+else ko "salto: uvx recibió [$out]; ssh: $(tr '\n' '|' < "$s/log" 2>/dev/null)"; fi
+# Al acabar el MCP (aquí, el stub de uvx al momento), el vigilante cierra el túnel.
+for _ in 1 2 3 4 5 6; do grep -q -- '-O exit salto-pg' "$s/log" 2>/dev/null && break; sleep 1; done
+if grep -q -- '-O exit salto-pg' "$s/log" 2>/dev/null; then ok "salto: el túnel se cierra al acabar el MCP"
+else ko "salto: nadie cerró el túnel; ssh: $(tr '\n' '|' < "$s/log" 2>/dev/null)"; fi
+
+out=$(salto DEV 'postgresql://u@h/bd' salto-pg)
+if [[ "$out" == *'@h:'*'/bd?hostaddr=127.0.0.1' ]] && grep -q -- ':h:5432 salto-pg' "$s/log"; then
+  ok "salto: sin puerto ni parámetros (5432 por defecto)"
+else ko "salto: sin puerto: uvx recibió [$out]"; fi
+
+SSH_FALLOS_BIND=1 salto DEV 'postgresql://u@h/bd' salto-pg >/dev/null
+if [[ "$(cat "$s/cnt" 2>/dev/null)" == 2 ]]; then ok "salto: puerto ocupado → reintenta con otro"
+else ko "salto: reintento de bind: $(cat "$s/cnt" 2>/dev/null) llamadas a ssh"; fi
+
+rc=0; out=$(SSH_FALLO='Permission denied (publickey).' salto PROD 'postgresql://u@h/bd' salto-pg) || rc=$?
+if [[ $rc == 1 && -z "$out" ]]; then ok "salto: si ssh falla, sale 1 sin arrancar postgres-mcp"
+else ko "salto: ssh fallido: exit $rc, uvx recibió [$out]"; fi
+
+for u in 'postgresql://u@h1,h2/bd' 'postgresql://u@h/bd?host=otro' 'postgresql:///bd'; do
+  rc=0; salto PROD "$u" salto-pg >/dev/null || rc=$?
+  if [[ $rc == 1 && ! -s "$s/log" ]]; then ok "salto: URL no soportada, sin llamar a ssh: $u"
+  else ko "salto: URL no soportada aceptada: $u (exit $rc)"; fi
+done
+
+out=$(DATABASE_SSH_JUMP_DEV=salto-pg salto DEV 'postgresql://u@h/bd' '${DATABASE_SSH_JUMP_DEV:-}')
+if grep -q -- ' salto-pg$' "$s/log" 2>/dev/null; then ok "salto: fallback headless desde el entorno"
+else ko "salto: fallback headless: ssh no se llamó"; fi
+
+out=$(salto DEV 'postgresql://u@h/bd' '')
+if [[ "$out" == *' postgresql://u@h/bd' && ! -s "$s/log" ]]; then ok "sin salto: URL intacta y sin ssh"
+else ko "sin salto: uvx recibió [$out]"; fi
+
 printf '\n'
 if [[ $fails -eq 0 ]]; then
   printf '\033[32mTodo OK.\033[0m\n'
