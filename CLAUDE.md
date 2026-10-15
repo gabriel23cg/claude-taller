@@ -280,7 +280,9 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   que importa. Lo que falta, con la forma exacta de ponerlo, es cosa de `/taller:doctor`.
   Al añadir una comprobación, la pregunta para decidir dónde va es esa: ¿está roto o puede
   faltar a propósito? Y el modo inicio no usa red: la primera respuesta de la sesión espera
-  a los SessionStart.
+  a los SessionStart. El `systemMessage` de un SessionStart **sí se ve** (verificado en una
+  sesión interactiva, Claude Code 2.1.295, 2026-10-15): sale bajo la cabecera como
+  `SessionStart:startup says: [taller] …`.
 - **Una variable OPCIONAL en `.mcp.json` va con default: `${VAR:-}`**. Sin default, su
   ausencia para el server (es lo que se quiere para `DATABASE_URL_*`, no para
   `DATABASE_SSH_JUMP_*`). Verificado en headless (Claude Code 2.1.295, 2026-10-14): `${VAR:-}`
