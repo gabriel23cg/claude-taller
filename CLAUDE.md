@@ -48,15 +48,18 @@ se escribe.
 ```
 .claude-plugin/plugin.json       # manifiesto: name, description, VERSION (ver abajo)
 .claude-plugin/marketplace.json  # este repo como marketplace; el plugin es source "./"
-hooks/hooks.json                 # wiring de los 8 hooks (PreToolUse/PostToolUse/Stop)
+hooks/hooks.json                 # wiring de los 9 hooks (SessionStart/PreToolUse/PostToolUse/Stop)
 hooks/*.sh                       # los hooks (bash 3.2-compatible: sin mapfile)
 hooks/lib/dir-proyecto.sh        # de qué directorio parte cada hook (el worktree de la sesión)
 scripts/postgres-mcp-launcher.sh # guarda de los MCP de Postgres (valida la URL antes de arrancar
                                  #   y, si hay máquina de salto, abre y cierra el túnel)
+scripts/lib/pg-url.sh            # cómo se lee una URL de Postgres (launcher y doctor, mismas reglas)
+scripts/doctor.sh                # comprobación de la configuración: completa (skill doctor) o
+                                 #   rápida y sin red (hook de SessionStart)
 agents/*.md                      # agentes: triage de backlog, cobertura de tests, plan de
                                  #   Terraform, migraciones Alembic
 skills/*/SKILL.md                # el ciclo: triage, work-issue, check-work, open-pr, land-pr,
-                                 #   gh-create-issue, review-infra-plan
+                                 #   gh-create-issue, review-infra-plan; fuera del ciclo, doctor
 .mcp.json                        # MCP comunes: terraform, azure-mcp, postgres-prod/dev
 tests/validate.sh                # la validación entera (JSON, wiring, smoke tests); la corre CI
 .github/workflows/validate.yml   # CI: validate.sh + exige version bump si el cambio llega a los consumidores
@@ -270,6 +273,16 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   repo funciona en sesiones interactivas; en `claude -p` (headless) NO se aplica a la expansión
   (verificado empíricamente 2026-08) — el launcher lo cubre leyendo la variable del entorno del
   proceso como fallback.
+- **El aviso de inicio de sesión solo cuenta lo ROTO** (`config-check-on-start.sh` →
+  `doctor.sh --inicio`, v1.4.0). Lo que falta y puede faltar a propósito —`DATABASE_URL_DEV`
+  en un repo sin BD de dev, `DATABASE_URL_PROD` en un repo sin BD— no avisa nunca al
+  arrancar: un aviso que salta en cada sesión sin motivo se aprende a ignorar, y con él el
+  que importa. Lo que falta, con la forma exacta de ponerlo, es cosa de `/taller:doctor`.
+  Al añadir una comprobación, la pregunta para decidir dónde va es esa: ¿está roto o puede
+  faltar a propósito? Y el modo inicio no usa red: la primera respuesta de la sesión espera
+  a los SessionStart. El `systemMessage` de un SessionStart **sí se ve** (verificado en una
+  sesión interactiva, Claude Code 2.1.295, 2026-10-15): sale bajo la cabecera como
+  `SessionStart:startup says: [taller] …`.
 - **Una variable OPCIONAL en `.mcp.json` va con default: `${VAR:-}`**. Sin default, su
   ausencia para el server (es lo que se quiere para `DATABASE_URL_*`, no para
   `DATABASE_SSH_JUMP_*`). Verificado en headless (Claude Code 2.1.295, 2026-10-14): `${VAR:-}`

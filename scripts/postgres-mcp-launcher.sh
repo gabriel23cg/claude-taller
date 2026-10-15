@@ -27,6 +27,9 @@
 
 set -euo pipefail
 
+# shellcheck source=lib/pg-url.sh
+. "$(dirname "$0")/lib/pg-url.sh"
+
 tier="${1:?uso: postgres-mcp-launcher.sh PROD|DEV <url> [destino-ssh-de-salto]}"
 url="${2:-}"
 salto="${3:-}"
@@ -68,13 +71,8 @@ EOF
 puerto_ocupado() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
 abrir_tunel() {
-  # BASH_REMATCH: 1 esquema · 3 usuario@ · 4 host · 6 puerto · 7 /bd?parámetros
-  local re='^(postgres(ql)?://)([^@/?]*@)?([^:/?@,]+|\[[^]/]+\])(:([0-9]+))?([/?].*)?$'
-  [[ "$url" =~ $re ]] || no_soportada "URL no reconocida o con varios hosts"
-  local esquema=${BASH_REMATCH[1]} usuario=${BASH_REMATCH[3]:-} host=${BASH_REMATCH[4]}
-  local puerto=${BASH_REMATCH[6]:-5432} resto=${BASH_REMATCH[7]:-}
-  local re_param='[?&](host|hostaddr|port)='
-  [[ "$resto" =~ $re_param ]] && no_soportada "trae ${BASH_REMATCH[1]}= en los parámetros"
+  pg_url_partes "$url" || no_soportada "$PG_MOTIVO"
+  local esquema=$PG_ESQUEMA usuario=$PG_USUARIO host=$PG_HOST puerto=$PG_PUERTO resto=$PG_RESTO
 
   local dir=${TMPDIR:-/tmp}
   local ctl="${dir%/}/taller-pg-${tier}-$$.sock" err="${dir%/}/taller-pg-${tier}-$$.err"
@@ -133,4 +131,19 @@ EOF
 # postgres-mcp prefiere DATABASE_URI al argumento: la URL que manda es la del contrato
 # (y, con salto, la del túnel), no una variable que el entorno arrastre por casualidad.
 unset DATABASE_URI
+
+# Modo comprobación (lo usa scripts/doctor.sh): misma URL y mismo túnel que el MCP, pero en
+# vez de arrancar postgres-mcp abre una conexión de verdad e imprime una línea con el rol.
+# Así el doctor prueba exactamente el camino que usará el MCP, sin duplicar el túnel.
+if [[ "${TALLER_PG_COMPROBAR:-}" == 1 ]]; then
+  exec uvx --quiet --with 'psycopg[binary]' python -c '
+import sys, psycopg
+with psycopg.connect(sys.argv[1], connect_timeout=10) as c:
+    rol, su, crea = c.execute(
+        "select current_user, rolsuper, has_database_privilege(current_user, current_database(), %s)"
+        " from pg_roles where rolname = current_user", ("CREATE",)).fetchone()
+    print(f"rol={rol} superusuario={su} crea_en_bd={crea} ssl={c.info.pgconn.ssl_in_use}")
+' "$url"
+fi
+
 exec uvx --from postgres-mcp --with 'mcp<2' postgres-mcp --access-mode=restricted "$url"

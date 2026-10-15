@@ -535,6 +535,74 @@ out=$(salto DEV 'postgresql://u@h/bd' '')
 if [[ "$out" == *' postgresql://u@h/bd' && ! -s "$s/log" ]]; then ok "sin salto: URL intacta y sin ssh"
 else ko "sin salto: uvx recibió [$out]"; fi
 
+# Modo comprobación (lo usa el doctor): misma URL y mismo túnel, pero una conexión de prueba
+# en vez de postgres-mcp.
+out=$(TALLER_PG_COMPROBAR=1 salto DEV 'postgresql://u@h/bd' salto-pg)
+if [[ "$out" == *psycopg* && "$out" != *postgres-mcp* && "$out" == *'@h:'*'hostaddr=127.0.0.1' ]]; then
+  ok "comprobación: prueba la conexión por el túnel y no arranca postgres-mcp"
+else ko "comprobación: uvx recibió [$out]"; fi
+
+head_ "Smoke: doctor y aviso de SessionStart"
+# PATH acotado a las herramientas que se le dan, para simular que falta uv, jq…
+herr() { # herr <dir> <herramienta...>: las básicas y esas; uvx y ssh, simulados (en CI no
+          # tiene por qué haber uvx, y el modo inicio no los ejecuta: solo mira si están)
+  local h=$1 t; shift; rm -rf "$h"; mkdir -p "$h"
+  for t in bash env git grep sed awk tr find tail cat dirname sort head "$@"; do
+    case $t in
+      uvx|ssh) printf '#!/bin/sh\nexit 0\n' > "$h/$t"; chmod +x "$h/$t" ;;
+      *) ln -s "$(command -v "$t")" "$h/$t" ;;
+    esac
+  done
+}
+r="$tmp/consumidor"; mkdir -p "$r/.claude"; git -C "$r" init -q; touch "$r/alembic.ini"
+DOCTOR="$PWD/scripts/doctor.sh"; INICIO="$PWD/hooks/config-check-on-start.sh"
+inicio() { # inicio <PATH> [VAR=valor...]: lo que imprime el hook de SessionStart
+  local camino=$1; shift
+  printf '{"cwd":"%s"}' "$r" | env -i HOME="$HOME" PATH="$camino" CLAUDE_PROJECT_DIR="$r" "$@" "$INICIO"
+}
+herr "$tmp/h-base" jq uvx ssh
+
+out=$(inicio "$tmp/h-base")
+if [[ -z "$out" ]]; then ok "inicio: repo con BD y sin URLs, calla (que falte una URL no es estar roto)"
+else ko "inicio: avisó sin nada roto: $out"; fi
+
+out=$(env -i HOME="$HOME" PATH="$tmp/h-base" "$DOCTOR" "$r")
+if grep -q '^AVISO  falta DATABASE_URL_PROD' <<<"$out" && grep -q '"DATABASE_URL_PROD": "postgresql://' <<<"$out" \
+   && grep -q '^INFO   sin DATABASE_URL_DEV' <<<"$out"; then
+  ok "completo: dice qué falta y con qué forma ponerlo (PROD aviso, DEV info)"
+else ko "completo: $out"; fi
+
+out=$(inicio "$tmp/h-base" DATABASE_SSH_JUMP_DEV=salto-pg)
+if jq -e '.systemMessage | contains("DATABASE_URL_DEV")' >/dev/null 2>&1 <<<"$out" \
+   && jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' >/dev/null 2>&1 <<<"$out"; then
+  ok "inicio: salto sin URL es roto: avisa con JSON válido"
+else ko "inicio: salto sin URL: [$out]"; fi
+
+out=$(inicio "$tmp/h-base" DATABASE_URL_PROD='postgresql://u@h1,h2/bd' DATABASE_SSH_JUMP_PROD=salto-pg)
+if [[ "$out" == *'no vale para la máquina de salto'* ]]; then ok "inicio: URL que el túnel no admite"
+else ko "inicio: URL con varios hosts y salto: [$out]"; fi
+
+out=$(inicio "$tmp/h-base" DATABASE_URL_PROD='${OTRA}')
+if [[ "$out" == *'sin expandir'* ]]; then ok "inicio: URL con \${...} sin expandir"
+else ko "inicio: literal sin expandir: [$out]"; fi
+
+printf '{"env":{"DATABASE_URL_PROD":"postgresql://lector:secreto@h/bd"}}\n' > "$r/.claude/settings.json"
+git -C "$r" add .claude/settings.json
+out=$(inicio "$tmp/h-base")
+if [[ "$out" == *'se versiona'* && "$out" != *secreto* ]]; then ok "inicio: la URL de prod en un settings versionado, sin enseñar la clave"
+else ko "inicio: secreto versionado: [$out]"; fi
+git -C "$r" rm -q --cached .claude/settings.json; rm "$r/.claude/settings.json"
+
+printf '[tool.ruff]\n' > "$r/pyproject.toml"; mkdir -p "$r/infra"
+out=$(inicio "$tmp/h-base")
+if [[ "$out" == *'falta uv'* && "$out" == *'falta terraform'* ]]; then ok "inicio: herramientas de los hooks que faltan para lo que el repo usa"
+else ko "inicio: uv/terraform: [$out]"; fi
+herr "$tmp/h-sin-jq" uvx ssh
+out=$(env -i HOME="$HOME" PATH="$tmp/h-sin-jq" CLAUDE_PROJECT_DIR="$r" "$DOCTOR" --inicio "$r")
+if jq -e '.systemMessage | contains("falta jq")' >/dev/null 2>&1 <<<"$out"; then ok "inicio: sin jq avisa igual, con JSON escrito a mano"
+else ko "inicio: sin jq: [$out]"; fi
+rm -rf "$r/pyproject.toml" "$r/infra"
+
 printf '\n'
 if [[ $fails -eq 0 ]]; then
   printf '\033[32mTodo OK.\033[0m\n'
