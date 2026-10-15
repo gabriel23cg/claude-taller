@@ -39,12 +39,16 @@ aquí: se queda en el `.claude/` de ese repo.
 | `/land-pr` | ¿Qué le falta a este PR? | PR mergeado, issue cerrado, de vuelta al triage |
 | `/gh-create-issue` | — | issue creado y clasificable |
 
+Fuera del ciclo, `/taller:doctor`: ¿está bien configurado el plugin en este repo y en esta
+máquina? (ver «Skills»).
+
 ## Qué aporta
 
 ### Hooks (`hooks/hooks.json`)
 
 | Hook | Evento | Qué hace | No-op cuando |
 |---|---|---|---|
+| `config-check-on-start.sh` | SessionStart (startup, resume) | Al abrir sesión, avisa si algo de la configuración está **roto**: una URL de Postgres sin expandir o que no es de Postgres, una máquina de salto sin URL o con una URL que el túnel no admite, la URL de prod en un `settings.json` versionado, o que falte `uvx`, `jq`, `gh` (con sesión), `uv` o `terraform` para algo que el repo usa. Sin red y en milisegundos. Sale por `systemMessage` y remite a `/taller:doctor`. | No hay nada roto. **Lo que falta y puede faltar a propósito no avisa nunca aquí** (`DATABASE_URL_DEV` en un repo sin BD de dev): eso lo cuenta el doctor |
 | `block-terraform-apply.sh` | PreToolUse (Bash) | Bloquea `terraform apply\|destroy` en local: el apply corre solo por CI (dispatch con `plan_run_id`). Exime `bootstrap`. | — |
 | `ruff-on-edit.sh` | PostToolUse (Edit/Write) | `ruff format` sobre el `.py` editado (solo formato, nunca autofix). | El pyproject no declara `[tool.ruff]` |
 | `ruff-fix-on-stop.sh` | Stop | `ruff format` + `ruff check --fix` sobre los `.py` cambiados vs HEAD; exit 2 si quedan issues no-autofixables (solo bloquea una vez por Stop: respeta `stop_hook_active` para no entrar en bucle). | El pyproject no declara `[tool.ruff]` |
@@ -131,7 +135,8 @@ y postgres-mcp conecta por el túnel:
 - **Solo URLs de un host** (`postgresql://…@host[:puerto]/…`), sin `host`, `hostaddr` ni
   `port` en los parámetros: el launcher rechaza lo demás con un mensaje.
 
-Sin la variable no cambia nada.
+Sin la variable no cambia nada. `/taller:doctor` comprueba todo esto de una vez —el alias,
+que la clave entre sin preguntar y que la BD conecte por el túnel— y dice qué falta.
 
 **Si falta la variable** (repo sin esa BD, p. ej. sin entorno dev): en sesiones
 interactivas es **Claude Code quien lo detecta** antes de lanzar nada — el panel
@@ -276,6 +281,16 @@ hace el trabajo de otra.
   `.claude/flujo-github.md`: el plugin no trae ninguno escrito. La mutación va **siempre con
   `confidence: HIGH`** y se **relee** después: con cualquier otra confianza el campo no se
   guarda y la API responde como si sí (detalle en `CLAUDE.md`).
+- **/doctor** (`/taller:doctor`) — *¿está bien configurado el plugin aquí?* Corre
+  `scripts/doctor.sh`: comprueba los MCP (las URLs de Postgres con una **conexión real**,
+  por la máquina de salto si la hay y con el **mismo launcher que el MCP**; si el rol de
+  prod es de lectura y va con TLS; uvx, Docker y la sesión de az) y las herramientas de los
+  hooks (`jq`, `gh`, `uv`, `terraform`). Dice qué está roto, **qué falta y con qué forma se
+  pone** (qué variable, en qué fichero, con qué formato), rellena esa forma con lo que puede
+  descubrir del repo (servidor, BD y rol desde `infra/`, Alembic o compose) y lo aplica con
+  tu confirmación. Nunca escribe una clave ni la URL de prod en un fichero versionado. Úsala
+  al poner el plugin en un repo o una máquina nuevos, o cuando el aviso de inicio de sesión
+  lo pida.
 - **/review-infra-plan** — localiza el job de plan del PR/run de infra, extrae su log y lo
   pasa por `terraform-plan-reviewer` contra `.claude/plan-invariantes.md`. Nunca mergea ni
   aplica. Se invoca desde `/check-work` cuando el diff toca infraestructura.
