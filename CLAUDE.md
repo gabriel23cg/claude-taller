@@ -51,7 +51,8 @@ se escribe.
 hooks/hooks.json                 # wiring de los 8 hooks (PreToolUse/PostToolUse/Stop)
 hooks/*.sh                       # los hooks (bash 3.2-compatible: sin mapfile)
 hooks/lib/dir-proyecto.sh        # de qué directorio parte cada hook (el worktree de la sesión)
-scripts/postgres-mcp-launcher.sh # guarda de los MCP de Postgres (valida la URL antes de arrancar)
+scripts/postgres-mcp-launcher.sh # guarda de los MCP de Postgres (valida la URL antes de arrancar
+                                 #   y, si hay máquina de salto, abre y cierra el túnel)
 agents/*.md                      # agentes: triage de backlog, cobertura de tests, plan de
                                  #   Terraform, migraciones Alembic
 skills/*/SKILL.md                # el ciclo: triage, work-issue, check-work, open-pr, land-pr,
@@ -222,6 +223,11 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   (`/plugin` → Errors: "Missing environment variables"; el server no arranca, benigno); el
   launcher cubre el resto (ver gotcha abajo) — su mensaje sigue siendo documentación al usuario
   en headless, mantenlo bueno.
+- **`DATABASE_SSH_JUMP_PROD`/`_DEV`** (opcionales, v1.3.0): destino SSH de una máquina de
+  salto. La URL no cambia (host real del server); el launcher abre `ssh -L` en un puerto
+  local libre, reescribe la URL al túnel con `hostaddr=127.0.0.1` (TLS sigue validando
+  contra el host) y cierra el túnel cuando muere el server. Es un dato del repo, como la URL:
+  vive en su `settings.local.json`, no aquí.
 
 ## Gotchas conocidos
 
@@ -264,6 +270,16 @@ Para probar de punta a punta sin tocar los repos reales: `claude plugin marketpl
   repo funciona en sesiones interactivas; en `claude -p` (headless) NO se aplica a la expansión
   (verificado empíricamente 2026-08) — el launcher lo cubre leyendo la variable del entorno del
   proceso como fallback.
+- **Una variable OPCIONAL en `.mcp.json` va con default: `${VAR:-}`**. Sin default, su
+  ausencia para el server (es lo que se quiere para `DATABASE_URL_*`, no para
+  `DATABASE_SSH_JUMP_*`). Verificado en headless (Claude Code 2.1.295, 2026-10-14): `${VAR:-}`
+  sin la variable llega vacío y el server arranca; la doc documenta `${VAR:-default}` para
+  ambos modos. El launcher trata el vacío y el literal sin expandir igual que con la URL.
+- **El túnel de la máquina de salto vive lo que el server**: `ssh -f` con `ControlMaster`
+  propio y un vigilante en segundo plano que espera a que muera el PID del launcher (el
+  mismo que, tras el `exec`, es postgres-mcp) y cierra el master con `ssh -O exit`. Nada de
+  eso puede heredar stdout: es el canal del protocolo MCP. Y el launcher hace
+  `unset DATABASE_URI`, porque postgres-mcp la prefiere al argumento y se saltaría el túnel.
 - **Los MCP del plugin no se deshabilitan de uno en uno**: es todo el plugin o nada. Un repo
   sin BD simplemente no define la variable y el server queda parado por la validación nativa.
 - **La guarda del launcher NO se ve en interactivo** (verificado 2026-08-17): Claude Code valida

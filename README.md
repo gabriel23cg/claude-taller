@@ -76,8 +76,8 @@ post-migración» más abajo.
 |---|---|---|
 | `terraform` | registry de providers/módulos (docker, pin 0.4.0) | Docker corriendo |
 | `azure-mcp` | operaciones Azure (pin 2.0.3) | sesión az |
-| `postgres-prod` | consulta read-only de la BD de prod (postgres-mcp restricted) | `DATABASE_URL_PROD` |
-| `postgres-dev` | ídem contra la BD local de dev | `DATABASE_URL_DEV` |
+| `postgres-prod` | consulta read-only de la BD de prod (postgres-mcp restricted) | `DATABASE_URL_PROD` (+ `DATABASE_SSH_JUMP_PROD` si hay máquina de salto) |
+| `postgres-dev` | ídem contra la BD local de dev | `DATABASE_URL_DEV` (+ `DATABASE_SSH_JUMP_DEV`) |
 
 **Contrato de las URLs**: cada repo consumidor define los valores —
 `DATABASE_URL_PROD` en su `.claude/settings.local.json` (secreto, gitignored, con un rol
@@ -93,6 +93,46 @@ repo, y ningún otro la hereda: un repo de aplicación tiene su rol de lectura y
 { "env": { "DATABASE_URL_PROD": "postgresql://<rol-lectura>:<pass>@<fqdn>:5432/<bd>?sslmode=require" } }
 ```
 
+**BD detrás de una máquina de salto** (opcional, v1.3.0). Si la BD solo se alcanza desde una
+VM de la red privada (una VNet sin VPN desde tu equipo), define además
+`DATABASE_SSH_JUMP_PROD` (o `_DEV`) con el destino SSH de esa VM. La URL **no cambia**: sigue
+llevando el host real del server, aunque sea un nombre privado que solo resuelve la VM.
+
+```json
+{ "env": {
+  "DATABASE_URL_PROD": "postgresql://<rol-lectura>:<pass>@<server>.postgres.database.azure.com:5432/<bd>?sslmode=require",
+  "DATABASE_SSH_JUMP_PROD": "salto-pg"
+} }
+```
+
+Mejor un alias de `~/.ssh/config` que `usuario@host`: ahí viven el usuario, la clave y lo
+que haga falta para llegar a la VM (`ProxyJump`, `ProxyCommand`…).
+
+```
+Host salto-pg
+  HostName <ip-o-dns-de-la-vm>
+  User <usuario>
+  IdentityFile ~/.ssh/<clave>
+  IdentitiesOnly yes
+```
+
+Con la variable puesta, el launcher abre `ssh -L` por la VM hasta el `host:puerto` de la URL
+y postgres-mcp conecta por el túnel:
+
+- **Puerto local libre en cada arranque**: dos repos, o PROD y DEV a la vez, no se pisan, y
+  nunca conectas por el túnel de otro a la BD equivocada.
+- **El túnel se cierra solo** cuando termina el server: no quedan `ssh` huérfanos.
+- **TLS intacto**: la URL reescrita mantiene el host y añade `hostaddr=127.0.0.1`. libpq
+  conecta al túnel pero valida el certificado contra el host real, así que
+  `sslmode=verify-full` sigue funcionando.
+- **Sin terminal**: el MCP no puede contestar una passphrase ni un 2FA. La clave tiene que
+  estar en el agente (`ssh-add`; en macOS, `UseKeychain yes` y `AddKeysToAgent yes`). Si
+  `ssh -o BatchMode=yes salto-pg true` entra sin preguntar, el MCP también.
+- **Solo URLs de un host** (`postgresql://…@host[:puerto]/…`), sin `host`, `hostaddr` ni
+  `port` en los parámetros: el launcher rechaza lo demás con un mensaje.
+
+Sin la variable no cambia nada.
+
 **Si falta la variable** (repo sin esa BD, p. ej. sin entorno dev): en sesiones
 interactivas es **Claude Code quien lo detecta** antes de lanzar nada — el panel
 `/plugin` → Errors muestra `Missing environment variables: DATABASE_URL_*` y el server
@@ -105,7 +145,7 @@ tres funciones: (1) en **headless** (`claude -p`) no hay validación nativa y el
 `${...}` pasaría crudo a postgres-mcp — el launcher lo corta con mensaje accionable;
 (2) centraliza el comando (pin `--with 'mcp<2'` + `--access-mode=restricted` una sola
 vez para prod y dev); (3) defensa si el comportamiento nativo cambia (ya difiere entre
-superficies).
+superficies); y (4) abrir y cerrar el túnel cuando hay máquina de salto.
 
 Gotchas: los MCP de plugin no se pueden deshabilitar de uno en uno (es todo el plugin);
 actualizar el `.mcp.json` del plugin requiere reiniciar la sesión (`/reload-plugins` no
@@ -403,7 +443,8 @@ ya, cambia cualquier cosa del script, por ejemplo un comentario `# taller 1.2.0`
 caché se reconstruye en la siguiente sesión.
 
 **Qué sirve en la nube.** Las skills, los agentes y los hooks, sí. Los MCP de Postgres y
-Azure no conectarán sin VPN ni credenciales, así que no esperes nada de ellos ahí.
+Azure no conectarán sin VPN ni credenciales, así que no esperes nada de ellos ahí. Tampoco por
+máquina de salto: la salida de la nube solo deja pasar HTTPS, no SSH.
 
 Comprobado el 2026-10-01: con el entorno así configurado, una sesión de claude.ai/code
 arranca con taller entero y `/taller:triage` ejecuta la skill del plugin.

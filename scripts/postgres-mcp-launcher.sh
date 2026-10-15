@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Launcher con guarda para los MCP de Postgres del plugin.
 #
-# Uso (desde .mcp.json): postgres-mcp-launcher.sh PROD|DEV "${DATABASE_URL_PROD}"
+# Uso (desde .mcp.json):
+#   postgres-mcp-launcher.sh PROD|DEV "${DATABASE_URL_PROD}" "${DATABASE_SSH_JUMP_PROD:-}"
 #
 # Comprueba la URL ANTES de arrancar postgres-mcp: si el repo/máquina no define la
 # variable, falla al instante con un mensaje accionable (sin spawn de uvx ni intento
@@ -14,16 +15,30 @@
 #   2. Si el argumento vino vacío o sin expandir (p. ej. `claude -p` headless, donde
 #      el env de settings no llega a la expansión), se lee DATABASE_URL_{PROD|DEV}
 #      del entorno del propio proceso.
+#
+# Máquina de salto (opcional, $3): si DATABASE_SSH_JUMP_{PROD|DEV} trae un destino SSH
+# (un alias de ~/.ssh/config o usuario@host), la BD no se alcanza directamente: se abre
+# `ssh -L` a través de esa máquina hasta el host:puerto de la URL y postgres-mcp conecta
+# por el túnel. Llega por las mismas dos vías que la URL. La URL se define igual que sin
+# salto, con el host real del server: aquí solo cambia el puerto por el local del túnel y
+# se añade hostaddr=127.0.0.1. libpq conecta a hostaddr pero valida el certificado (y manda
+# el SNI) con host, así que sslmode=verify-full sigue valiendo; y el nombre del server, que
+# puede ser privado, lo resuelve la máquina de salto, no este equipo.
 
 set -euo pipefail
 
-tier="${1:?uso: postgres-mcp-launcher.sh PROD|DEV <url>}"
+tier="${1:?uso: postgres-mcp-launcher.sh PROD|DEV <url> [destino-ssh-de-salto]}"
 url="${2:-}"
+salto="${3:-}"
 var="DATABASE_URL_${tier}"
+var_salto="DATABASE_SSH_JUMP_${tier}"
 
 # Argumento vacío o literal sin expandir → prueba el entorno del proceso.
 case "$url" in
   ''|*'${'*) url="${!var:-}" ;;
+esac
+case "$salto" in
+  ''|*'${'*) salto="${!var_salto:-}" ;;
 esac
 
 if [[ -z "$url" || "$url" == *'${'* ]]; then
@@ -40,4 +55,82 @@ EOF
   exit 1
 fi
 
+no_soportada() {
+  cat >&2 <<EOF
+[taller] postgres-${tier}: con ${var_salto} la URL tiene que ser de la forma
+  postgresql://[usuario[:clave]@]host[:puerto][/bd][?parámetros]
+con un solo host y sin host/hostaddr/port en los parámetros ($1).
+EOF
+  exit 1
+}
+
+# Hay algo escuchando en 127.0.0.1:$1. /dev/tcp es de bash (también el 3.2 de macOS).
+puerto_ocupado() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+abrir_tunel() {
+  # BASH_REMATCH: 1 esquema · 3 usuario@ · 4 host · 6 puerto · 7 /bd?parámetros
+  local re='^(postgres(ql)?://)([^@/?]*@)?([^:/?@,]+|\[[^]/]+\])(:([0-9]+))?([/?].*)?$'
+  [[ "$url" =~ $re ]] || no_soportada "URL no reconocida o con varios hosts"
+  local esquema=${BASH_REMATCH[1]} usuario=${BASH_REMATCH[3]:-} host=${BASH_REMATCH[4]}
+  local puerto=${BASH_REMATCH[6]:-5432} resto=${BASH_REMATCH[7]:-}
+  local re_param='[?&](host|hostaddr|port)='
+  [[ "$resto" =~ $re_param ]] && no_soportada "trae ${BASH_REMATCH[1]}= en los parámetros"
+
+  local dir=${TMPDIR:-/tmp}
+  local ctl="${dir%/}/taller-pg-${tier}-$$.sock" err="${dir%/}/taller-pg-${tier}-$$.err"
+  local intento local_port rc
+  for intento in 1 2 3 4 5; do
+    local_port=$((20000 + RANDOM % 40000))
+    puerto_ocupado "$local_port" && continue
+    # -f vuelve en cuanto el reenvío local está escuchando (o sale con error): con
+    # ExitOnForwardFailure, un puerto ocupado es un fallo y no un túnel a medias.
+    # BatchMode: el MCP no tiene terminal, así que una passphrase o un 2FA colgarían el
+    # arranque; mejor fallar con un mensaje. El master de control sirve para cerrarlo.
+    rc=0
+    ssh -f -N \
+      -o BatchMode=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=15 \
+      -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+      -o ControlMaster=yes -o ControlPath="$ctl" \
+      -L "127.0.0.1:${local_port}:${host}:${puerto}" "$salto" \
+      </dev/null >/dev/null 2>"$err" || rc=$?
+    if [[ $rc -eq 0 ]]; then
+      rm -f "$err"
+      # Cierra el túnel cuando acabe este proceso, que con el exec de abajo pasa a ser
+      # postgres-mcp: así no quedan túneles huérfanos al cerrar la sesión. Sin heredar
+      # stdout, que es el canal del protocolo MCP.
+      (
+        while kill -0 "$$" 2>/dev/null; do sleep 2; done
+        ssh -S "$ctl" -O exit "$salto"
+      ) </dev/null >/dev/null 2>&1 &
+      local parametro=hostaddr=127.0.0.1
+      case "$resto" in
+        *'?'*) resto="${resto}&${parametro}" ;;
+        *) resto="${resto}?${parametro}" ;;
+      esac
+      url="${esquema}${usuario}${host}:${local_port}${resto}"
+      echo "[taller] postgres-${tier}: túnel por ${salto} hasta ${host}:${puerto} (local 127.0.0.1:${local_port})" >&2
+      return 0
+    fi
+    # Puerto cogido entre la comprobación y el bind: otro intento con otro puerto.
+    grep -qiE 'address already in use|cannot listen|could not request local forwarding' "$err" 2>/dev/null && continue
+    break
+  done
+
+  cat >&2 <<EOF
+[taller] postgres-${tier}: no se pudo abrir el túnel por ${salto} (ssh salió con ${rc}).
+$(tail -n 3 "$err" 2>/dev/null)
+
+Comprueba que entra sin preguntar nada:  ssh -o BatchMode=yes ${salto} true
+El MCP no tiene terminal: la clave tiene que estar en el agente (ssh-add), sin passphrase
+ni 2FA. ${var_salto} admite un alias de ~/.ssh/config o usuario@host.
+EOF
+  rm -f "$err"
+  exit 1
+}
+
+[[ -n "$salto" ]] && abrir_tunel
+
+# postgres-mcp prefiere DATABASE_URI al argumento: la URL que manda es la del contrato
+# (y, con salto, la del túnel), no una variable que el entorno arrastre por casualidad.
+unset DATABASE_URI
 exec uvx --from postgres-mcp --with 'mcp<2' postgres-mcp --access-mode=restricted "$url"
